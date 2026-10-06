@@ -1,0 +1,10 @@
+campaign aurora
+person = upl()
+openness = feature(input: person, index: 2)
+energy = feature(input: person, index: 3)
+scene = prompt(condition: openness, low: "A serene aurora above a quiet alpine lake, teal sky, warm amber cabin lights, photographic landscape", high: "A vivid aurora above dramatic alpine peaks, sweeping teal light, warm amber sunrise, photographic landscape", threshold: 0.5)
+picture = generate_image(prompt: scene, model: "tiny-sd", steps: 12, guidance: 7.5, width: 256, height: 256)
+shade = vignette(image: picture, strength: 0.2)
+light = exposure(image: shade, condition: energy, amount: 0.12)
+mark = brand(image: light, x: 0.065, y: 0.065, cell: 0.018, color: [0.94, 0.97, 0.9], background: [0.025, 0.07, 0.085])
+output mark

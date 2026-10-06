@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Angelos — Campaign laboratory</title>
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="wordmark" href="/" aria-label="Angelos home"><span class="logo">A</span> angelos<span class="alpha">α</span></a>
+    <div class="workspace-label">RESEARCH WORKSPACE</div>
+    <nav aria-label="Workspace">
+      <button class="nav active" data-section="studio"><span>⌘</span> Campaign studio</button>
+      <button class="nav" data-section="people"><span>◎</span> Personal latents</button>
+      <button class="nav" data-section="learning"><span>↗</span> Learning ledger</button>
+      <button class="nav" data-section="architecture"><span>◇</span> Architecture</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="status-dot"></span> Local & synthetic only<p>No trackers. No ad spend.<br>No profile data leaves this app.</p></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">Workspace <span>/</span> <strong>Campaign laboratory</strong></div><span class="badge muted">ENGINEERING PREVIEW · 0.2</span></header>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <section id="studio" class="section">
+      <div class="page-heading"><div><div class="eyebrow">FROM CREATIVE INTENT TO CAMPAIGN WEIGHTS</div><h1>One graph. One creative model.</h1><p>Compose a teacher. Distill its behavior. Run the student where the impression happens.</p></div><button id="training-help" class="button dark">Build student <span>↗</span></button></div>
+      <div class="pipeline"><span class="pipeline-step"><i>01</i> Author graph</span><b>→</b><span class="pipeline-step"><i>02</i> Compile teacher</span><b>→</b><span class="pipeline-step"><i>03</i> Distill weights</span><b>→</b><span class="pipeline-step"><i>04</i> Serve in WebGPU</span></div>
+      <div class="studio-grid">
+        <article class="panel graph-panel">
+          <div class="panel-head"><div><span class="eyebrow">TEACHER PROGRAM</span><h2>Aurora / light study</h2></div><div class="segmented"><button id="show-canvas" class="selected">Canvas</button><button id="show-source">Source</button></div></div>
+          <div id="canvas-area"><div class="canvas-caption"><span class="status-dot"></span><span id="graph-count">Loading typed graph…</span><span class="canvas-hint">Select a node to inspect · drag to arrange</span></div><div id="graph-scroll"><svg id="graph" role="img" aria-label="Typed campaign graph"></svg></div></div>
+          <div id="source-area" hidden><label class="sr-only" for="source">Campaign source</label><textarea id="source" spellcheck="false"></textarea><div class="source-actions"><span>Typed calls · no arbitrary code execution</span><button id="apply-source" class="button small">Check & apply</button></div></div>
+          <div id="inspector"><div class="eyebrow">NODE INSPECTOR</div><p>Select any node to inspect its typed ports and edit parameters.</p></div>
+          <div class="source-actions"><label for="teacher-example">Graph preset</label><select id="teacher-example"><option value="tiny-sd">Tiny-SD</option><option value="flux2-klein-4b">FLUX.2 Klein 4B</option><option value="ltx-video">LTX video → frame</option><option value="procedural">Deterministic fixture</option></select><button id="load-example" class="button small">Load graph</button></div>
+          <div class="panel-foot"><span id="graph-hash">Graph identity —</span><span id="operation-count" class="badge">Typed operations</span></div>
+        </article>
+        <article class="panel profile-panel"><div class="panel-head"><div><span class="eyebrow">CONDITIONING INPUT</span><h2>A person, not a prompt.</h2></div><span class="avatar">U</span></div>
+          <label for="profile">Synthetic profile</label><select id="profile"></select>
+          <div class="fact-grid"><div><label for="age-band">Age band</label><select id="age-band"><option>18-24</option><option>25-34</option><option>35-44</option><option>45-54</option><option>55-64</option><option>65+</option></select></div><div><label for="region">Coarse region</label><select id="region"><option value="NA">North America</option><option value="EU">Europe</option><option value="APAC">Asia Pacific</option><option value="OTHER">Other</option></select></div></div>
+          <label for="openness">Declared openness <output id="openness-value">0.5</output></label><input id="openness" type="range" min="0" max="1" step="0.01" value="0.5">
+          <label for="energy">Declared energy <output id="energy-value">0.5</output></label><input id="energy" type="range" min="0" max="1" step="0.01" value="0.5">
+          <div class="latent-box"><div class="eyebrow">ENCODER / STRUCTURED-DEMO-V1</div><div id="latent-bars"></div><code id="latent-values">[ —, —, —, — ]</code></div>
+          <p class="fine-print">Facts and encoder are independent. This explicit baseline is not a learned personality embedding. Slider previews save only when applied.</p>
+          <button id="save-facts" class="button full">Save ingredients & encode</button>
+        </article>
+      </div>
+      <article class="panel output-panel"><div class="panel-head"><div><span class="eyebrow">COMPILATION ≠ DISTILLATION</span><h2>The teacher, the approximation, the delivery.</h2></div><span id="gpu-status" class="badge muted">Checking model…</span></div>
+        <div class="previews"><div class="preview"><div class="preview-label"><span>01 / Teacher reference</span><span id="teacher-backend">Offline graph</span></div><canvas id="teacher" width="192" height="192" aria-label="Teacher reference image"></canvas><p id="teacher-caption">Open-weight generation and deterministic image operations form the complete teacher.</p></div><div class="preview"><div class="preview-label"><span>02 / Raw student</span><span id="student-size">Unbuilt</span></div><canvas id="student" width="192" height="192" aria-label="Raw neural student image"></canvas><p id="student-caption">Conditional diffusion generates from seeded noise using learned campaign weights.</p></div><div class="preview"><div class="preview-label"><span>03 / Delivered creative</span><span id="brand-mode">Awaiting validation</span></div><canvas id="delivered" width="192" height="192" aria-label="Delivered neural creative with validated brand fallback"></canvas><p id="delivery-caption">Exact GPU brand composition is used only when the neural fidelity gate fails.</p></div></div>
+        <div class="source-actions"><span>Creative seed <code id="creative-seed">2026</code> · raw and delivered use identical noise</span><button id="new-seed" class="button small">New variation</button></div>
+        <p id="conditioning-status" class="fine-print">Conditioning quality has not been evaluated.</p>
+        <div class="model-metrics"><div><span id="mse-label">HELD-OUT NOISE MSE</span><strong id="mse">—</strong></div><div><span>NEURAL BRAND MAX ERROR</span><strong id="brand-error">—</strong></div><div><span>GPU + READBACK</span><strong id="render-time">—</strong></div><div><span>ENCODER CONTRACT</span><strong>4 dimensions</strong></div></div>
+        <div class="placement-controls"><div><strong>Placement sandbox</strong><p>A preview is not an impression. Expose a completed creative before recording a click.</p></div><button id="show-placement" class="button" disabled>Expose creative</button><button id="click-ad" class="button dark" disabled>Record click ↗</button></div><p id="exposure-status" class="fine-print">No exposed impression.</p>
+      </article>
+      <article class="panel review-panel"><div><span class="eyebrow">HUMAN SIGNAL</span><h2>Review this candidate.</h2><p>Separate quality from brand fit. Reviews are stored, not a claim that a critic has been trained.</p></div><div class="review-controls"><label>Visual quality<select id="quality-score"><option value="1">1 · Poor</option><option value="2">2</option><option value="3" selected>3 · Acceptable</option><option value="4">4</option><option value="5">5 · Excellent</option></select></label><label>Brand fit<select id="brand-score"><option value="1">1 · Off-brand</option><option value="2">2</option><option value="3" selected>3 · Acceptable</option><option value="4">4</option><option value="5">5 · On-brand</option></select></label><button id="save-review" class="button">Save review</button></div></article>
+    </section>
+    <section id="people" class="section" hidden><div class="page-heading"><div><div class="eyebrow">USER-OWNED INPUTS</div><h1>Ingredients before embeddings.</h1><p>One profile, explicit permissions. Encoder changes never rewrite the original facts.</p></div></div><article class="panel information"><h2>Current profile</h2><pre id="profile-json"></pre><h3>Campaign permissions</h3><p>These permissions apply to the selected synthetic profile and Aurora campaign.</p><div class="consent-controls"><label><input id="allow-personalization" type="checkbox"> Personalization</label><label><input id="allow-telemetry" type="checkbox"> Impression & click collection</label><label><input id="allow-training" type="checkbox"> Future training use</label></div><button id="save-consent" class="button">Update consent</button><button id="delete-profile" class="button danger">Delete this synthetic profile</button><p class="fine-print">Deleting local records does not erase a record's influence from previously trained models. The included student is trained on generated synthetic vectors, not these profiles.</p></article></section>
+    <section id="learning" class="section" hidden><div class="page-heading"><div><div class="eyebrow">OBSERVE, THEN LEARN</div><h1>Outcomes with a memory.</h1><p>Each click belongs to the profile snapshot and model that actually produced its impression.</p></div><button id="refresh-ledger" class="button">Refresh ledger</button></div><div id="ledger-metrics" class="ledger-metrics"></div><article class="panel information"><h2>Nightly learning is a gated release.</h2><p>Only mature exposed impressions with training permission are eligible. The current slice exports attribution-correct examples; automatic critic training, CTR-driven generator updates, and promotion remain planned.</p><div class="timeline"><p><b>01</b> Freeze exposure-time UPL, campaign artifact and consent receipt.</p><p><b>02</b> Collect click or wait for the 24-hour attribution window.</p><p><b>03</b> Export eligible examples after the lateness window.</p><p><b>04</b> Train a candidate, evaluate brand and holdout quality, then promote explicitly.</p></div><pre id="ledger-json"></pre></article></section>
+    <section id="architecture" class="section" hidden><div class="page-heading"><div><div class="eyebrow">BUILT BACKWARD FROM THE IMPRESSION</div><h1>Small proof. Explicit boundaries.</h1><p>A research foundation, not a finished advertising platform.</p></div></div><article class="panel information"><h2>The implementation plan</h2><p>The authored graph and trained student are distinct artifacts. The graph remains readable; the deployed model is bound to its exact graph and UPL encoder version.</p><pre>Facts → versioned UPL encoder → typed creative graph\n                                    ↓\n                             open-weight + tensor teacher\n                                    ↓\n                      whole-graph distillation\n                                    ↓\n                     campaign diffusion weights\n                                    ↓\n                          browser WebGPU\n                                    ↓\n                 exposed impressions + clicks</pre><h3>Implemented first</h3><p>Typed generative image/video graph, pinned open-weight teachers, complete-graph datasets, conditional diffusion student, browser WebGPU denoising, exact brand fallback, and exposure/review records.</p><h3>Not claimed</h3><p>High-resolution student quality, full FLORA feature parity, fused generative-graph CUDA compilation, a trained human critic, autonomous CTR improvement, production identity or ad exchange integration.</p><p><a href="/docs/PLAN.md">Read the backward plan →</a> <a href="/docs/CONTRACTS.md">Read the contracts →</a></p></article></section>
+    <footer>ANGELOS <span>Creative intent, made executable.</span><span>Local research build · No production traffic</span></footer>
+  </main>
+  <dialog id="training-dialog"><div class="eyebrow">A MODEL BUILD, NOT A GRAPH COMPILE</div><h2>Distill the campaign.</h2><p>Generate complete teacher examples with locally cached open weights, then train a conditional diffusion student. Graph input cannot download models or launch training.</p><pre id="training-command">npm run models -- download tiny-sd
+npm run dataset -- data/campaign.ang
+npm run train -- data/campaign.ang 2000</pre><p>After training, reload this page. Graph edits invalidate datasets and old weights. Noise-prediction improvement is not proof of ad quality. See README for setup and current resolution limits.</p><button id="close-training" class="button dark">Got it</button></dialog>
+  <script type="module" src="/web/app.js"></script>
+</body>
+</html>

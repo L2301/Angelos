@@ -1,0 +1,10 @@
+campaign aurora
+person = upl()
+openness = feature(input: person, index: 2)
+energy = feature(input: person, index: 3)
+field = gradient(condition: openness, low: [0.025, 0.07, 0.085], high: [0.22, 0.68, 0.53], angle: 0.55)
+sun = disk(image: field, condition: energy, color: [0.96, 0.73, 0.38], center: [0.65, 0.39], radius: 0.23, softness: 0.18)
+shade = vignette(image: sun, strength: 0.4)
+light = exposure(image: shade, condition: energy, amount: 0.16)
+mark = brand(image: light, x: 0.065, y: 0.065, cell: 0.018, color: [0.94, 0.97, 0.9], background: [0.025, 0.07, 0.085])
+output mark

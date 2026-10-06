@@ -1,0 +1,25 @@
+{
+  "name": "angelos",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "A local campaign-model research laboratory",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "test:browser": "playwright test",
+    "compile": "node src/cli.js compile",
+    "compile:teacher": "node scripts/compile-teacher.js",
+    "train": "node scripts/train.js",
+    "train:fixture": "node scripts/train.js --fixture-mlp examples/aurora.ang",
+    "dataset": "node scripts/dataset.js",
+    "models": "node scripts/models.js",
+    "test:ml": "PYTHONPATH=ml .venv/bin/python -m unittest discover -s ml/tests"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

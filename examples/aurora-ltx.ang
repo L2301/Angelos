@@ -1,0 +1,11 @@
+campaign aurora
+person = upl()
+openness = feature(input: person, index: 2)
+energy = feature(input: person, index: 3)
+scene = prompt(condition: openness, low: "Slow camera movement over a quiet alpine lake under a serene teal aurora and warm cabin lights", high: "Camera sweeps over dramatic alpine peaks under a vivid teal aurora and warm amber sunrise", threshold: 0.5)
+clip = generate_video(prompt: scene, model: "ltx-video", steps: 20, guidance: 3, width: 512, height: 512, num_frames: 9)
+picture = frame(video: clip, index: 4)
+shade = vignette(image: picture, strength: 0.2)
+light = exposure(image: shade, condition: energy, amount: 0.12)
+mark = brand(image: light, x: 0.065, y: 0.065, cell: 0.018, color: [0.94, 0.97, 0.9], background: [0.025, 0.07, 0.085])
+output mark
