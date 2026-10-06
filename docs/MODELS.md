@@ -1,5 +1,9 @@
 # Open-weight graph teachers
 
+This document covers the **currently implemented** three-model allowlist only.
+For the broader, capability-by-capability research and proposed replacements, see
+[the full creative-model audit](MODEL-COVERAGE.md). Research entries are not executable adapters.
+
 Graph IR, raster teacher execution, dataset collection, student training, and deployment are separate stages. Generative graph nodes call actual local Diffusers pipelines; they never substitute gradients, noise textures, synthetic test pixels, or an untrained network for a pretrained model.
 
 ## Pinned allowlist

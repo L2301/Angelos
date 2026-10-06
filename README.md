@@ -12,6 +12,11 @@ freshly trained **32×32 image-space U-Net**, not a pretrained photorealistic mo
 The enlarged preview is not genuine high-resolution output. Model capacity,
 training data, perceptual quality and conditioning need further research.
 
+The [full creative-model capability audit](docs/MODEL-COVERAGE.md) covers the
+broader intended graph: image editing/control, video, audio, avatars, language,
+documents, vector/3D assets and deterministic operations. Its sourced candidates
+are research recommendations, not a claim that these adapters are implemented.
+
 ## Quick start
 
 Requires Node 24+, Python 3.11 and hardware WebGPU in Chrome. Teacher generation

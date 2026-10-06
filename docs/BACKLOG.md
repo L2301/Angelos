@@ -95,6 +95,11 @@ tests pass under concurrent use. No public deployment before those boundaries ex
 
 ## 6. Expand formats and authoring only behind contracts
 
+The [full capability audit](MODEL-COVERAGE.md) now defines this scope. It supersedes
+any interpretation that three generation adapters cover the intended graph.
+Build typed asset/mask/reference/time contracts before broadening the model list;
+the audit's integration order applies across the research stages above.
+
 - Tensor/image/text ports with composable reusable subgraphs and separately stored layout.
 - Model-specific parameter schemas and unsupported-backend diagnostics.
 - Video/audio time axes, frame rate, duration, codecs and temporal consistency tests.
