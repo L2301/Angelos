@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#151613">
+  <meta name="description" content="GPU Accelerated Ads — a proof of concept by Louis Anderson. Angelos explores a creative model for every campaign: consented inputs, readable graphs, and compact browser diffusion.">
+  <meta name="author" content="Louis Anderson">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="GPU Accelerated Ads — Louis Anderson">
+  <meta property="og:description" content="A creative system that learns what to make, not just whom to show it to. Explore the architecture, the local laboratory, and the limits of the current proof.">
+  <title>GPU Accelerated Ads — Louis Anderson · Angelos</title>
+  <link rel="stylesheet" href="/web/story.css">
+  <script src="/web/story.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header shell">
+    <a class="wordmark" href="/" aria-label="Angelos home">
+      <svg viewBox="0 0 30 32" aria-hidden="true"><path d="M1 29 13 3h5l11 26h-7l-7-18-5 12h9l2 6Z" fill="currentColor"/></svg>
+      angelos<span class="wordmark-period">.</span>
+    </a>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-navigation" hidden>Menu <span aria-hidden="true">+</span></button>
+    <nav id="site-navigation" class="site-navigation" aria-label="Main navigation">
+      <a href="#system">The system</a>
+      <a href="#concept">A possibility</a>
+      <a href="#evidence">The evidence</a>
+      <a class="nav-lab" href="/lab">Enter the lab <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" aria-labelledby="hero-title">
+      <div class="hero-meta mono"><span><span class="status-dot" aria-hidden="true"></span> GPU Accelerated Ads</span><span>A proof of concept by Louis Anderson</span></div>
+      <div class="hero-layout">
+        <div class="hero-copy">
+          <h1 id="hero-title">Build an ad.<br>Train a model<br>for <em>that campaign.</em></h1>
+          <p class="hero-description">Start with an image-making workflow, like one you’d build in ComfyUI. Angelos aims to train a smaller model to make ads like that workflow, then improve it using people’s ratings and clicks.</p>
+          <div class="hero-actions"><a class="button button-accent" href="/lab">Explore the laboratory <span aria-hidden="true">↗</span></a><a class="text-link" href="#system">Understand the system <span aria-hidden="true">↓</span></a></div>
+          <p class="hero-boundary"><span class="mini-cross" aria-hidden="true">+</span> A research prototype, not a production ad platform.</p>
+        </div>
+        <figure class="hero-art">
+          <div class="figure-top mono"><span>Fig. 01 — Creative architecture</span><span aria-hidden="true">[ A ]</span></div>
+          <svg class="architecture-art" viewBox="0 0 560 540" role="img" aria-labelledby="architecture-title architecture-description">
+            <title id="architecture-title">From a readable graph to a campaign model</title>
+            <desc id="architecture-description">An original architectural drawing. Consented inputs connect to a graph, a layered yellow A-shaped campaign model, and a browser delivery plane. This is a conceptual diagram, not generated creative.</desc>
+            <defs>
+              <pattern id="architecture-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#33362c" stroke-width="0.6"/></pattern>
+              <pattern id="architecture-hatch" width="8" height="8" patternUnits="userSpaceOnUse"><path d="m0 8 8-8" stroke="#b3bf54" stroke-width="0.7"/></pattern>
+            </defs>
+            <rect width="560" height="540" fill="url(#architecture-grid)"/>
+            <g fill="none" stroke="#525747" stroke-width="1">
+              <path d="m43 358 242-140 242 140-242 140Z"/><path d="m43 396 242-140 242 140-242 140Z"/>
+              <path d="M43 358v38m242 102v38m242-178v38M285 218v38"/>
+              <path d="M285 23v512M5 377h550" stroke-dasharray="3 7"/>
+              <path d="m43 252 242-140 242 140-242 140Z" stroke-dasharray="3 5"/>
+              <path d="M43 252v106m484-106v106" stroke-dasharray="3 5"/>
+            </g>
+            <g stroke="#e0ed84" stroke-width="1.2" stroke-linejoin="round">
+              <path d="m129 328 106-237 56 32-106 237Z" fill="#a1ad45"/>
+              <path d="m235 91 54-31 112 256-56 32-54-225Z" fill="#e6f197"/>
+              <path d="m291 123 54-31 112 256-56 32Z" fill="#707a31"/>
+              <path d="m185 360 106-237 110 257-56-32-20-50-73-42-24 73Z" fill="#d6e778"/>
+              <path d="m276 202-24 54 73 42Z" fill="#20231b"/>
+              <path d="m252 256 24-14 30 18 19 38Z" fill="url(#architecture-hatch)"/>
+              <path d="m129 328 56 32 43-51-56-32Z" fill="#c3d267"/>
+            </g>
+            <g fill="none" stroke="#a8b45f" stroke-width="1">
+              <path d="m172 414 110-64 111 64-111 64Z"/>
+              <path d="m195 414 87-50 87 50-87 50Z"/><path d="m219 414 63-36 63 36-63 36Z"/>
+              <path d="m242 414 40-23 40 23-40 23Z"/><path d="m266 414 16-9 16 9-16 9Z"/>
+              <path d="M95 110h66l28 36M407 193h83v-60M368 455v34h113" stroke="#b6bea1"/>
+            </g>
+            <g font-family="ui-monospace, monospace" font-size="11" letter-spacing="1">
+              <rect x="21" y="68" width="145" height="43" fill="#1b1d17" stroke="#60654e"/>
+              <text x="34" y="85" fill="#aab29a">01 / INPUT</text><text x="34" y="101" fill="#eeeee2">CONSENTED FACTS</text>
+              <rect x="374" y="86" width="165" height="47" fill="#1b1d17" stroke="#60654e"/>
+              <text x="388" y="104" fill="#aab29a">02 / PROGRAM</text><text x="388" y="122" fill="#eeeee2">READABLE GRAPH</text>
+              <rect x="365" y="470" width="174" height="46" fill="#d6e778"/>
+              <text x="378" y="488" fill="#303620">03 / DESTINATION</text><text x="378" y="505" fill="#151613">CAMPAIGN MODEL</text>
+              <text x="22" y="514" fill="#aab29a">INTENT → WEIGHTS</text>
+            </g>
+            <g fill="#e6f197"><circle cx="189" cy="146" r="3"/><circle cx="407" cy="193" r="3"/><circle cx="368" cy="455" r="3"/></g>
+            <g stroke="#aeb59a"><path d="M13 20h14m-7-7v14M532 20h14m-7-7v14M13 527h14m-7-7v14"/></g>
+          </svg>
+          <figcaption class="mono">Code-drawn concept <span>Not model output</span></figcaption>
+        </figure>
+      </div>
+      <div class="hero-foot mono"><span>Readable intent → learned approximation → local execution</span><a href="#thesis">The thinking behind Angelos <span aria-hidden="true">↓</span></a></div>
+    </section>
+
+    <section id="thesis" class="thesis shell section-space" aria-labelledby="thesis-title">
+      <div class="section-kicker mono"><span>01 / What this actually does</span><span>Start with the ad, not the jargon</span></div>
+      <h2 id="thesis-title">Your workflow makes the examples.<br><em>A smaller model learns from them.</em></h2>
+      <ol class="plain-steps">
+        <li><h3>Make one ad in ComfyUI.</h3><p>A graph is just connected steps: write a prompt, generate a scene, add a logo and text. First, get an ad you would actually use.</p></li>
+        <li><h3>Turn an accepted graph into code.</h3><p>Angelos converts a supported ComfyUI API export into a readable, type-checked program. It keeps the connections and settings. Unsupported nodes are rejected, not guessed at.</p></li>
+        <li><h3>Make and grade examples.</h3><p>Run the full workflow for different <strong>customer personas</strong>. Rate the finished ads for quality and brand fit. A UPL is the person’s permitted facts plus a numeric representation—not the ad itself.</p></li>
+        <li><h3>Train a smaller image model.</h3><p>Use those examples to teach a campaign-specific diffusion model. The goal is to generate new ads faster, without running the whole workflow each time. This training step is separate from converting the graph to code.</p></li>
+        <li><h3>Test new versions using clicks and ratings.</h3><p>A critic learns from the ratings. Click feedback and the critic guide training of candidate models: aim for more clicks while keeping quality and brand fit. Evaluate a candidate before replacing the current model.</p></li>
+      </ol>
+      <div class="plain-example"><strong>For example: Aurora backpacks.</strong><p>You make a backpack ad beside a lake. The intended system could make a calmer or more energetic version for different permitted preferences, then test which model works better. That useful personalization has not yet been demonstrated.</p></div>
+      <div class="plain-status"><p><strong>What works now:</strong> a limited ComfyUI graph-to-program converter, image-pack import, local preference encoding, a small browser diffusion experiment, and separate feedback-training tools.</p><p><strong>What does not work yet:</strong> a good-looking campaign-trained HD student, proven personalization, or measured click-rate improvement. The HD ad below uses a pretrained model and separately authored text. This is not an automatic ad-buying service.</p><a class="text-link" href="/docs/COMFYUI.md#workflow-to-program">Which ComfyUI graphs are accepted? ↗</a></div>
+    </section>
+
+    <section id="system" class="system section-space" aria-labelledby="system-title">
+      <div class="shell">
+        <div class="section-kicker mono"><span>02 / Anatomy of a campaign</span><span>Five connected ideas</span></div>
+        <div class="section-heading"><h2 id="system-title">Intent, made<br><em>executable.</em></h2><p>Keep the human-readable program.<br>Learn a separate, compact approximation.<br>Never confuse the two.</p></div>
+        <div class="system-layout">
+          <div class="step-controls" role="group" aria-label="Explore the five system stages" hidden>
+            <button type="button" class="step-button" data-step="0" aria-pressed="true" aria-controls="stage-0"><span class="step-number mono">01</span><span>Your facts. Your permission.<small>Facts & a versioned encoder</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+            <button type="button" class="step-button" data-step="1" aria-pressed="false" aria-controls="stage-1"><span class="step-number mono">02</span><span>Author the creative logic.<small>Readable graph & model operations</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+            <button type="button" class="step-button" data-step="2" aria-pressed="false" aria-controls="stage-2"><span class="step-number mono">03</span><span>Teach, then distill.<small>Execution is not training</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+            <button type="button" class="step-button" data-step="3" aria-pressed="false" aria-controls="stage-3"><span class="step-number mono">04</span><span>A model at the edge.<small>Browser diffusion & exact brand</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+            <button type="button" class="step-button" data-step="4" aria-pressed="false" aria-controls="stage-4"><span class="step-number mono">05</span><span>Close the loop. Carefully.<small>Exposure-bound feedback</small></span><span class="step-arrow" aria-hidden="true">↗</span></button>
+          </div>
+          <div class="system-detail">
+            <div class="diagram-label mono"><span>System schematic</span><span>Not a live inference</span></div>
+            <svg class="system-diagram" viewBox="0 0 600 244" role="img" aria-labelledby="system-diagram-title system-diagram-description">
+              <title id="system-diagram-title">The campaign lifecycle</title>
+              <desc id="system-diagram-description">Consented facts pass through an encoder into a creative graph. Teacher examples train a separate student. Browser delivery records exposure-bound feedback. Implemented click-and-critic training feeds back into learning to produce candidate student models, not changes to the creative graph. Runs are manual; candidates must pass evaluation and are not automatically deployed. The tested student is native 32 × 32, not HD.</desc>
+              <g class="diagram-wires" fill="none"><path d="M178 56h43m155 0h44M500 86v64M421 183h-45m-156 0H102V86"/><path class="feedback-update-wire" d="M302 150V112H455V86"/></g>
+              <g class="diagram-node is-current" data-diagram-stage="0"><rect x="24" y="26" width="154" height="60"/><text x="39" y="49" class="diagram-number">01 / INPUT</text><text x="39" y="70">Facts + encoder</text><circle cx="165" cy="39" r="3"/></g>
+              <g class="diagram-node" data-diagram-stage="1"><rect x="221" y="26" width="155" height="60"/><text x="236" y="49" class="diagram-number">02 / INTENT</text><text x="236" y="70">Creative graph</text><circle cx="363" cy="39" r="3"/></g>
+              <g class="diagram-node" data-diagram-stage="2"><rect x="421" y="26" width="155" height="60"/><text x="436" y="49" class="diagram-number">03 / LEARNING</text><text x="436" y="70">Teacher → student</text><circle cx="563" cy="39" r="3"/></g>
+              <g class="diagram-node" data-diagram-stage="3"><rect x="421" y="150" width="155" height="60"/><text x="436" y="173" class="diagram-number">04 / DELIVERY</text><text x="436" y="194">WebGPU + brand</text><circle cx="563" cy="163" r="3"/></g>
+              <g class="diagram-node" data-diagram-stage="4"><rect x="221" y="150" width="155" height="60"/><text x="236" y="173" class="diagram-number">05 / FEEDBACK</text><text x="236" y="194">Exposure + click</text><circle cx="363" cy="163" r="3"/></g>
+              <g class="diagram-direction" fill="none"><path d="m202 52 4 4-4 4m199-8 4 4-4 4m91 58 4 4 4-4m-108 61-4 4 4 4"/><path d="M451 90l4-4 4 4"/></g>
+              <text class="diagram-note" x="116" y="130">ENCODER ≠ FACTS</text><text class="diagram-note" x="318" y="104">MODEL UPDATE</text>
+            </svg>
+            <p class="diagram-feedback-note">Model updates are implemented as manual, local click + critic training runs. They create candidates for evaluation—not automatic replacements. The tested student remains 32 × 32.</p>
+            <p id="step-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+            <div class="stage-details">
+              <article id="stage-0" class="stage-panel" aria-labelledby="stage-title-0"><span class="status-label mono">UPL v2 / ingredients before inference</span><h3 id="stage-title-0">A person is not a targeting label.</h3><p>Declared interests, goals, visual styles and language stay separate from recent view, click, save and dismiss events. Facts, event history, permission and encoder revisions change independently. An opaque identity reference is not the representation itself.</p><p class="detail-boundary">The local lab offers explicit cached Qwen3-Embedding inference, starting at 512 dimensions. Missing weights fail clearly: no automatic downloads or fake fallback. Embeddings are not anonymous. Synthetic adults only; personal-data collection and tracking are not enabled.</p><p>Trainable adapter infrastructure is not a trained conditioning model. A semantic vector cannot simply be plugged into a generator’s conditioning port. The 4D WebGPU path remains a legacy fixture; compatible adapters and useful personalization need independent evaluation.</p><p><a href="/docs/UPL-EXECUTION.md">Recorded real CPU embedding execution ↗</a> verifies the encoder ran—not a learned campaign adapter or CTR lift. A first cold local encode may take about 20 seconds, including worker/model loading; not a GPU latency claim.</p><a class="text-link" href="/lab">Inspect the inputs in the lab <span aria-hidden="true">↗</span></a></article>
+              <article id="stage-1" class="stage-panel" aria-labelledby="stage-title-1"><span class="status-label mono">Architecture / explicit operation boundaries</span><h3 id="stage-title-1">Creative direction, with a structure.</h3><p>A human-readable, typed graph connects creative intent, deterministic operations, and reviewed open-model adapters. A <code>prompt</code> node selects or formats text; the learned <code>generate_text</code> node is a separate model operation, with its own execution evidence.</p><p class="detail-boundary">Model execution is not implied by a graph label. Tiny-SD has documented real-weight evidence; FLUX and LTX adapter tests alone do not establish live execution. Unsupported operations must fail explicitly.</p><a class="text-link" href="/lab">Inspect text nodes in the lab <span aria-hidden="true">↗</span></a></article>
+              <article id="stage-2" class="stage-panel" aria-labelledby="stage-title-2"><span class="status-label mono">Training / bounded diffusion proof</span><h3 id="stage-title-2">The recipe is not the learned model.</h3><p>Build the ad in ComfyUI, or use the smaller typed graph here. Complete rendered examples are the teaching material for a separate campaign model. Exporting a workflow does not train a student, and the student does not simply replay the graph.</p><p class="detail-boundary">Reward fitting and candidate optimization are implemented experiments. A critic validated on substantial human ratings and a useful campaign-trained HD student remain unproven.</p><a class="text-link" href="/docs/COMFYUI.md">Use your ComfyUI workflow <span aria-hidden="true">↗</span></a></article>
+              <article id="stage-3" class="stage-panel" aria-labelledby="stage-title-3"><span class="status-label mono">Runtime / measured at 32 × 32</span><h3 id="stage-title-3">Small enough for a different runtime.</h3><p>The current compact campaign diffusion student runs its denoising loop in browser WebGPU. It is a real trained model, but only a 32 × 32 proof. Enlarging the preview does not create high-resolution detail.</p><p class="detail-boundary">The raw learned brand failed its fidelity gate. An explicit exact-brand compositor supplies the tested mark instead; it does not fix the rest of the image. Useful personalization has not been demonstrated.</p><a class="text-link" href="/lab">Compare raw and composited output <span aria-hidden="true">↗</span></a></article>
+              <article id="stage-4" class="stage-panel" aria-labelledby="stage-title-4"><span class="status-label mono">Implemented / candidate model training</span><h3 id="stage-title-4">Learn from what actually happened.</h3><p>A click belongs to an exposed creative, its seed, its model, and the profile snapshot at exposure time—not the latest profile. Eligible feedback needs consent and a completed attribution window. A preview is not an impression.</p><p class="detail-boundary">The local trainer updates diffusion weights using predicted clicks plus separate quality and brand constraints, then saves and evaluates candidate models. Run it explicitly with <code>npm run rl</code>; saving feedback does not start training. The recorded native-32 smoke run changed weights, but both candidates failed their gates. No automatic nightly jobs, production promotion, real ad traffic or measured performance lift is claimed.</p><a class="text-link" href="/docs/RL.md">Inspect the candidate-learning loop <span aria-hidden="true">↗</span></a></article>
+            </div>
+          </div>
+        </div>
+        <noscript><p class="no-script-note">All five stages are shown above. The stage selector and concept switcher are optional JavaScript enhancements.</p></noscript>
+      </div>
+    </section>
+
+    <section id="concept" class="concept shell section-space" aria-labelledby="concept-title">
+      <div class="section-kicker mono"><span>03 / A possibility, illustrated</span><span>Art direction ≠ evidence</span></div>
+      <div class="concept-layout">
+        <div class="concept-copy"><h2 id="concept-title">One intent.<br><em>Different expressions.</em></h2><p>A fictional outdoor campaign. The same identity, expressed for two different creative briefs. This is the kind of flexibility the research aims toward—not a result the current student has achieved.</p><div class="persona-controls" role="group" aria-label="Choose an illustrative campaign brief" hidden><button type="button" data-persona="quiet" aria-pressed="true" aria-controls="campaign-preview">The quiet explorer</button><button type="button" data-persona="bold" aria-pressed="false" aria-controls="campaign-preview">The restless explorer</button></div><dl class="brief-facts"><div><dt class="mono">Constant</dt><dd>Campaign identity & exact brand layer</dd></div><div><dt class="mono">Variable</dt><dd id="brief-variable">Quiet pace · spacious composition · reflective copy</dd></div><div><dt class="mono">Method here</dt><dd>Hand-authored copy + local SVG + CSS</dd></div></dl><p class="concept-disclosure">Illustrative concept, not model output</p></div>
+        <figure id="campaign-preview" class="campaign-preview" data-persona="quiet">
+          <div class="campaign-sheet">
+            <div class="campaign-top mono"><span class="campaign-brand">A / AURORA</span><span>Field notes — 01</span></div>
+            <svg class="campaign-landscape" viewBox="0 0 600 650" role="img" aria-labelledby="landscape-title landscape-description"><title id="landscape-title">Illustrative Aurora landscape</title><desc id="landscape-description">A hand-drawn vector composition of a sun, angular mountain silhouettes, and contour lines. Not AI-generated imagery.</desc><circle class="landscape-sun" cx="435" cy="217" r="100"/><g class="landscape-contours" fill="none"><path d="M-50 365Q130 140 320 340T650 285M-50 385Q130 160 320 360T650 305M-50 405Q130 180 320 380T650 325M-50 425Q130 200 320 400T650 345M-50 445Q130 220 320 420T650 365M-50 465Q130 240 320 440T650 385M-50 485Q130 260 320 460T650 405M-50 505Q130 280 320 480T650 425"/></g><path class="landscape-back" d="M0 535 220 294 335 420 436 314 600 495V650H0Z"/><path class="landscape-facet" d="m220 294 28 224 87-98Z"/><path class="landscape-front" d="m0 579 113-91 87 33 157-81 243 140v70H0Z"/><path class="landscape-trail" d="m-20 618 141-81 79 20 155-76 113 72 132 65" fill="none"/><g class="landscape-coordinate"><path d="M417 217h36m-18-18v36" fill="none"/><text x="462" y="222">N / 01</text></g></svg>
+            <div class="campaign-message"><span id="campaign-eyebrow" class="mono">Less noise. More outside.</span><h3 id="campaign-headline">Find your<br>own quiet.</h3><p id="campaign-copy">A little further from the everyday.</p></div>
+            <div class="campaign-bottom mono"><span>Outside, on your terms.</span><span aria-hidden="true">↗</span></div>
+          </div>
+          <figcaption><span class="mono">Composition study / <span id="concept-number">01</span></span><span>Illustrative concept, not model output</span></figcaption>
+        </figure>
+      </div>
+      <p id="concept-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+
+    <section id="evidence" class="evidence section-space" aria-labelledby="evidence-title">
+      <div class="shell">
+        <div class="section-kicker mono"><span>04 / The evidence ledger</span><span>No borrowed certainty</span></div>
+        <div class="section-heading"><h2 id="evidence-title">Built to be seen.<br><em>Not just measured.</em></h2><p>A real generated photograph.<br>A considered brand layer.<br>A full-resolution campaign composition.</p></div>
+        <figure class="hd-showcase" aria-labelledby="hd-showcase-title" aria-describedby="hd-showcase-boundary">
+          <div class="hd-showcase-heading"><div><span class="mono">Aurora / Outdoor essentials</span><h3 id="hd-showcase-title">A little further from the everyday.</h3></div><span class="hd-resolution mono">1920 × 1080 / Source image</span></div>
+          <div class="aurora-ad">
+            <img class="aurora-ad-image" src="/web/evidence/hd-baseline.png" width="1920" height="1080" loading="lazy" decoding="async" alt="A moss-green hiking backpack on a granite ledge above a still alpine lake, with mountains catching the first light of dawn. Generated locally at native HD resolution.">
+            <div class="aurora-ad-shade" aria-hidden="true"></div>
+            <div class="aurora-ad-brand"><svg viewBox="0 0 42 36" aria-hidden="true"><path d="M3 32 21 3l18 29M12 23h18M16 16l5 8 5-8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/></svg><span>AURORA</span></div>
+            <span class="aurora-ad-edition">OUTSIDE, ON YOUR TERMS.</span>
+            <div class="aurora-ad-message"><p class="aurora-ad-eyebrow">LESS NOISE. MORE OUTSIDE.</p><p class="aurora-ad-headline">Make room<br>for wonder.</p><p class="aurora-ad-description">A little less everyday.<br>A little more out there.</p><span class="aurora-ad-cta">Find your next horizon <span aria-hidden="true">↗</span></span></div>
+            <div class="aurora-ad-footer"><span>FIELD NOTES / 001</span><span>TAKE THE LONG WAY HOME.</span></div>
+          </div>
+          <figcaption class="hd-showcase-caption"><div><span class="mono">01 / The photograph</span><p>Locally generated with SANA-Sprint. Native 1920 × 1088, cropped to 1080p. No enlargement.</p></div><div><span class="mono">02 / The art direction</span><p>Authored Aurora mark, typography and layout. Crisp browser-rendered design, separate from the image model.</p></div><div><span class="mono">03 / The original</span><a href="/web/evidence/hd-baseline.png">Open the 1920 × 1080 photograph <span aria-hidden="true">↗</span></a><a href="/web/evidence/hd-manifest.json">View generation provenance <span aria-hidden="true">↗</span></a></div></figcaption>
+        </figure>
+        <p id="hd-showcase-boundary" class="hd-showcase-boundary"><span class="mono">Pretrained baseline + authored design</span> This is a recorded, fictional campaign composition—not output from the campaign-trained student, learned UPL personalization, or live WebGPU generation. <a href="/docs/HD-EXECUTION.md">Read the execution report ↗</a></p>
+        <div class="evidence-ledger">
+          <article class="evidence-row"><h3>Native HD imagery</h3><span class="evidence-status measured mono">Executed locally</span><p>The photograph above was generated with SANA-Sprint on Apple MPS at 1920 × 1088 and cropped to 1920 × 1080. The Aurora copy and mark are separate authored design layers, not learned brand fidelity. No paid inference.</p></article>
+          <article class="evidence-row"><h3>Teacher execution</h3><span class="evidence-status measured mono">Measured</span><p>Real Tiny-SD weights and full-graph examples on Apple MPS. Registered FLUX and LTX adapters are not evidence that their full weights have run.</p></article>
+          <article class="evidence-row"><h3>Text, not templates</h3><span class="evidence-status measured mono">Measured</span><p>A separate Qwen3-0.6B node writes text that feeds Tiny-SD. Real CPU execution was checked end to end. Prompt formatting remains deterministic; browser text inference is not claimed. <a href="/docs/TEXT.md">Inspect the text contract ↗</a></p></article>
+          <article class="evidence-row"><h3>Browser diffusion</h3><span class="evidence-status measured mono">Measured</span><p>The trained 32px student executes in hardware WebGPU, with numerical parity checks against PyTorch. This verifies execution, not ad quality.</p></article>
+          <article class="evidence-row"><h3>Useful personalization</h3><span class="evidence-status limit mono">Not demonstrated</span><p>The reported UPL-conditioning audit failed: mismatched inputs performed slightly better on noise MSE. Pixel variation is not meaningful personalization.</p></article>
+          <article class="evidence-row"><h3>Brand fidelity</h3><span class="evidence-status limit mono">Explicit fallback</span><p>The raw neural mark failed its gate. The tested exact compositor restores that mark; arbitrary logos, required copy, and overall brand quality are not thereby solved.</p></article>
+          <article class="evidence-row"><h3>Human judgment</h3><span class="evidence-status planned mono">Needs evidence</span><p>Separate quality and brand reward heads can be trained and evaluated on held-out profiles. Synthetic-label tests are not validation of a human preference critic.</p></article>
+          <article class="evidence-row"><h3>The learning loop</h3><span class="evidence-status planned mono">Experiment</span><p>Click + critic optimization writes candidate models with provenance and rejection gates. No automatic nightly jobs, production serving or measured CTR lift. <a href="/docs/RL.md">Inspect the method.</a></p></article>
+        </div>
+        <p class="evidence-source">Evidence reflects documented local experiments, not a live benchmark. <a href="/docs/SHOWCASE-EXECUTION.md">Read the integration report <span aria-hidden="true">↗</span></a> · <a href="/docs/DIFFUSION-EXECUTION.md">Original diffusion report <span aria-hidden="true">↗</span></a></p>
+        <div class="research-links"><a href="/docs/MODEL-COVERAGE.md"><span class="mono">Research / 01</span><h3>The wider model landscape <span aria-hidden="true">↗</span></h3><p>Creative capabilities, candidate models, license boundaries, and the gap between research and runtime.</p></a><a href="/docs/SHOWCASE-AUDIT.md"><span class="mono">Research / 02</span><h3>Inspect the showcase claims <span aria-hidden="true">↗</span></h3><p>A claim-by-claim audit of what is implemented, what is illustrated, and what remains a plan.</p></a></div>
+      </div>
+    </section>
+
+    <section class="closing shell section-space" aria-labelledby="closing-title"><div class="section-kicker mono"><span>05 / Open the hood</span><span>A local research laboratory</span></div><div class="closing-layout"><h2 id="closing-title">Less black box.<br><em>More workbench.</em></h2><div><p>Inspect the graph. Follow the inputs. Compare the raw student with the delivered image. See the limits for yourself.</p><a class="button button-accent" href="/lab">Enter the laboratory <span aria-hidden="true">↗</span></a><a class="closing-text-link text-link" href="/lab">Explore the text-node workflow <span aria-hidden="true">↗</span></a><p class="runtime-note">Local setup and a compatible WebGPU browser are required for student inference. This page runs no models, collects no profiles, and records no clicks.</p></div></div></section>
+  </main>
+
+  <footer class="site-footer shell"><div class="footer-top"><a class="wordmark" href="/" aria-label="Angelos home">angelos<span class="wordmark-period">.</span></a><p>GPU Accelerated Ads<br>A proof of concept by Louis Anderson</p><a class="text-link" href="https://github.com/L2301/Angelos">Source repository <span aria-hidden="true">↗</span></a></div><div class="footer-bottom mono"><span>Creative intent, made executable.</span><span>No trackers. No ad traffic. No claimed lift.</span><a href="#main">Back to top ↑</a></div></footer>
+</body>
+</html>

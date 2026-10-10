@@ -1,0 +1,84 @@
+{
+  "format": "angelos.recorded-proof.v1",
+  "capturedAt": "2026-10-08T17:52:10.072Z",
+  "selection": "First held-out profile/sample, index 32; not selected for visual quality.",
+  "teacher": {
+    "sampleIndex": 32,
+    "nativeResolution": 256,
+    "seed": 43,
+    "model": {
+      "id": "tiny-sd",
+      "repo": "segmind/tiny-sd",
+      "revision": "cad0bd7495fa6c4bcca01b19a723dc91627fe84f",
+      "pipeline": "StableDiffusionPipeline",
+      "kind": "image",
+      "license": "creativeml-openrail-m",
+      "safetensors": false,
+      "backend": "diffusers",
+      "device": "mps",
+      "dtype": "torch.float32",
+      "weightLoading": "torch.load(weights_only=True) via modern Diffusers/Transformers",
+      "localFilesOnly": true
+    },
+    "device": "mps:0",
+    "pngSha256": "d805fa9a2b4a9fb9878da5430240676e5b8b167640751ad7b006962a5611dac6",
+    "availableBy": "2026-10-06T06:06:00.159664+00:00",
+    "availableByMeaning": "Student training timestamp; teacher corpus generated before this time."
+  },
+  "student": {
+    "id": "aurora-diffusion-5ee99096c31e4c6ea572b98b4e572aca",
+    "artifactSha256": "ba440bc4549cd2975f1673a8cd4075c07bb0c38783377a15877da3757043c945",
+    "seed": 2026,
+    "nativeResolution": 32,
+    "backend": "Chrome WebGPU",
+    "adapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "isFallbackAdapter": false
+    },
+    "steps": 16,
+    "trainingSteps": 2000,
+    "pretrained": false
+  },
+  "graphHash": "f0a99add82b7caab74c1ea45c5af801ed4cecfbae208c2ec7972e06b644987bd",
+  "encoder": {
+    "dimension": 4,
+    "id": "structured-demo-v1"
+  },
+  "upl": [
+    0.4000000059604645,
+    0,
+    0.21469539403915405,
+    0.28163284063339233
+  ],
+  "synthetic": true,
+  "comparison": "Same held-out UPL and teacher graph; independent teacher and student noise, not pixel reconstruction of the same random sample.",
+  "metrics": {
+    "baselineMse": 1.0108144183953602,
+    "heldoutMse": 0.11280355167885621,
+    "improvedOverUntrained": true,
+    "lossSemantics": "heldout epsilon (noise) prediction MSE; not image reconstruction or image quality",
+    "relativeMseImprovement": 0.8884033017080141,
+    "parameterDeltaL2": 7.80044412612915,
+    "heldoutShuffledUplMse": 0.11167106963694096,
+    "conditioningNoiseMseGain": -0.0011324820419152531,
+    "improvedWithCorrectUpl": false,
+    "heldoutProfileCount": 4,
+    "brandMaxError": 0.896121621131897,
+    "brandNativeMaxError": 0.8869826197624207,
+    "brandNearestProbeMaxError": 0.896121621131897,
+    "brandTolerance": 0.06,
+    "hasBrand": true,
+    "compositeBrandMaxError": 0,
+    "rawSampleTeacherMse": 0.07181131187826395,
+    "seedDiversityMse": 0.04584842175245285,
+    "uplChangeMse": 0.0008417328353971243,
+    "rasterEvaluationCount": 8,
+    "evaluationWidth": 32,
+    "evaluationHeight": 32
+  },
+  "delivery": "Recorded WebGPU student with the explicit exact-brand compositor; not learned brand fidelity.",
+  "personalizationDemonstrated": false,
+  "highResolutionStudent": false,
+  "trainingDatasetSha256": "d89e84beb867541272e5c4196116a611f0893374aa8d882bf4747679539dc7da"
+}

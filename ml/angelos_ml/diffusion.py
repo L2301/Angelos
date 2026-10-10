@@ -5,6 +5,7 @@ prior. Its small terminal alpha amplifies untrained epsilon errors: DDIM clips
 x0 at every step, not epsilon. Clipping is not evidence of good generated images.
 """
 
+import copy
 import math
 
 import numpy as np
@@ -13,10 +14,47 @@ from torch import nn
 from torch.nn import functional
 
 from .teacher import apply_brand, pixel_coordinates
+from .upl import DIMENSIONS, encoder_metadata
 
 
 ARCHITECTURE = {"name": "conditional-unet-v1", "resolution": 32, "channels": [10, 16, 32, 32, 16, 3]}
 LAYER_SHAPES = ((10, 16, 1), (16, 32, 2), (32, 32, 1), (48, 16, 1), (16, 3, 1))
+LEGACY_ENCODER = {"id": "structured-demo-v1", "dimension": 4}
+
+
+def conditioning_encoder(encoder=None):
+    encoder = copy.deepcopy(LEGACY_ENCODER if encoder is None else encoder)
+    if encoder == LEGACY_ENCODER and type(encoder.get("dimension")) is int:
+        return encoder
+    if (not isinstance(encoder, dict) or type(encoder.get("dimension")) is not int
+            or encoder["dimension"] not in DIMENSIONS or encoder != encoder_metadata(encoder["dimension"])):
+        raise ValueError("Unsupported or incomplete UPL encoder contract")
+    return encoder
+
+
+def conditioning_tensor(values, encoder=None, *, device="cpu", batched=False):
+    encoder = conditioning_encoder(encoder)
+    try:
+        if isinstance(values, (list, tuple)):
+            rows = values if batched else (values,)
+            if any(isinstance(value, bool) for row in rows for value in row):
+                raise ValueError("Boolean values are not UPL coordinates")
+        tensor = torch.as_tensor(values, device=device)
+        if tensor.dtype == torch.bool or tensor.is_complex() or tensor.layout != torch.strided:
+            raise ValueError("UPL must be a dense real numeric tensor")
+        dimension = encoder["dimension"]
+        if (tensor.ndim != (2 if batched else 1) or tensor.shape[-1] != dimension
+                or (batched and tensor.shape[0] < 1)):
+            raise ValueError(f"UPL shape must be {'[N,' if batched else '['}{dimension}]")
+        tensor = tensor.to(dtype=torch.float32)
+        lower = 0 if encoder == LEGACY_ENCODER else -1
+        if not torch.isfinite(tensor).all() or ((tensor < lower) | (tensor > 1)).any():
+            raise ValueError(f"UPL values must be finite in [{lower},1]")
+        if encoder != LEGACY_ENCODER and not torch.allclose(tensor.norm(dim=-1), torch.ones_like(tensor.norm(dim=-1)), atol=1e-4, rtol=0):
+            raise ValueError("Embedding UPL vectors must already be L2 normalized; no implicit normalization")
+        return tensor
+    except (TypeError, RuntimeError) as error:
+        raise ValueError("Invalid UPL tensor") from error
 
 
 def validate_seed(seed):
@@ -70,16 +108,27 @@ def validate_schedule(schedule):
 
 
 class DiffusionStudent(nn.Module):
-    def __init__(self):
+    """Native32 numerical fixture; v2 is a Python-only semantic-vector experiment."""
+
+    def __init__(self, encoder=None):
         super().__init__()
-        self.layers = nn.ModuleList(nn.Conv2d(inputs, outputs, 3, stride=stride, padding=1) for inputs, outputs, stride in LAYER_SHAPES)
+        self.encoder = conditioning_encoder(encoder)
+        self.upl_dimension = self.encoder["dimension"]
+        self.architecture = copy.deepcopy(ARCHITECTURE)
+        self.artifact_format = "angelos.diffusion.v1"
+        if self.encoder != LEGACY_ENCODER:
+            self.artifact_format = "angelos.diffusion.v2"
+            self.architecture["name"] = "conditional-unet-upl-v2"
+            self.architecture["channels"][0] = self.upl_dimension + 6
+        shapes = ((self.upl_dimension + 6, 16, 1), *LAYER_SHAPES[1:])
+        self.layers = nn.ModuleList(nn.Conv2d(inputs, outputs, 3, stride=stride, padding=1) for inputs, outputs, stride in shapes)
         coordinates = pixel_coordinates(32, 32).T.reshape(1, 2, 32, 32)
         self.register_buffer("coordinates", coordinates, persistent=False)
 
     def forward(self, noisy, upl, timesteps, return_nodes=False):
         batch = noisy.shape[0]
-        if noisy.shape != (batch, 3, 32, 32) or upl.shape != (batch, 4) or timesteps.shape != (batch,):
-            raise ValueError("Expected noisy [N,3,32,32], upl [N,4], timesteps [N]")
+        if noisy.shape != (batch, 3, 32, 32) or upl.shape != (batch, self.upl_dimension) or timesteps.shape != (batch,):
+            raise ValueError(f"Expected noisy [N,3,32,32], upl [N,{self.upl_dimension}], timesteps [N]")
         conditioning = upl[:, :, None, None].expand(-1, -1, 32, 32)
         time_plane = (timesteps.to(dtype=noisy.dtype) / 63)[:, None, None, None].expand(-1, 1, 32, 32)
         inputs = torch.cat((noisy, conditioning, time_plane, self.coordinates.expand(batch, -1, -1, -1)), dim=1)
@@ -109,12 +158,13 @@ class DiffusionStudent(nn.Module):
 
     @classmethod
     def from_artifact(cls, artifact, device="cpu"):
-        if artifact.get("format") != "angelos.diffusion.v1" or artifact.get("architecture") != ARCHITECTURE:
+        encoder = conditioning_encoder(artifact.get("encoder"))
+        model = cls(encoder)
+        if artifact.get("format") != model.artifact_format or artifact.get("architecture") != model.architecture:
             raise ValueError("Unsupported diffusion artifact architecture")
         validate_schedule(artifact["schedule"])
         if len(artifact["layers"]) != 5:
             raise ValueError("Expected five convolution layers")
-        model = cls()
         with torch.no_grad():
             for index, (layer, exported) in enumerate(zip(model.layers, artifact["layers"])):
                 expected = {"input": layer.in_channels, "output": layer.out_channels, "kernel": 3, "stride": layer.stride[0], "activation": "linear" if index == 4 else "relu"}
@@ -133,9 +183,10 @@ class DiffusionStudent(nn.Module):
 def sample_ddim(model, upl, seed=2026, schedule=None, return_trace=False):
     schedule = validate_schedule(cosine_schedule() if schedule is None else schedule)
     device = next(model.parameters()).device
-    profile = torch.as_tensor(upl, dtype=torch.float32, device=device).reshape(-1, 4)
-    if profile.shape != (1, 4) or not torch.isfinite(profile).all() or ((profile < 0) | (profile > 1)).any():
-        raise ValueError("Sampling requires one finite UPL in [0,1]^4")
+    profile = torch.as_tensor(upl, device=device)
+    if profile.ndim == 2 and profile.shape[0] == 1:
+        profile = profile[0]
+    profile = conditioning_tensor(profile, model.encoder, device=device).unsqueeze(0)
     noisy = seeded_noise(seed).to(device)
     alphas = torch.tensor(schedule["alphaCumprod"], dtype=torch.float32, device=device)
     trace = []
@@ -172,6 +223,8 @@ def composite_rgb(rgb, brand, width=32, height=32):
 
 def render_cpu(artifact, upl, width=32, height=32, composite=True, seed=2026):
     """Explicit numerical reference only; not a browser GPU implementation."""
+    if artifact.get("format") != "angelos.diffusion.v1":
+        raise ValueError("Legacy browser/render contract only supports diffusion.v1; use Python sample_ddim for v2 checkpoints")
     model = DiffusionStudent.from_artifact(artifact)
     rgb = sample_ddim(model, upl, seed, artifact["schedule"])
     colors = composite_rgb(rgb, artifact.get("brand") if composite else None, width, height)

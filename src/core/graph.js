@@ -1,5 +1,12 @@
 export const GRAPH_VERSION = 'angelos.graph.v1';
+export const SEMANTIC_GRAPH_VERSION = 'angelos.graph.v2';
 export const ENCODER = Object.freeze({ id: 'structured-demo-v1', dimension: 4 });
+const semanticDimensions = Object.freeze([128, 256, 512, 1024]);
+const semanticEncoder = Object.freeze({
+  id: 'qwen3-embedding-0.6b-v1', modelId: 'Qwen/Qwen3-Embedding-0.6B',
+  revision: '97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3', pooling: 'last-token',
+  normalization: 'l2', templateVersion: 'angelos.upl-text.v1',
+});
 
 const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const forbiddenNames = new Set(['__proto__', 'prototype', 'constructor', 'campaign', 'output']);
@@ -9,17 +16,20 @@ const rgb = value => vector(value, 3);
 const unit = value => finiteRange(value, 0, 1);
 const signedUnit = value => finiteRange(value, -1, 1);
 const promptText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 2048 && !/[{}]/.test(value.replaceAll('{condition}', ''));
+const systemText = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 2048 && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value);
+const textInputTypes = Object.freeze(['prompt', 'text']);
 const rasterSize = value => Number.isInteger(value) && value >= 256 && value <= 512 && value % 32 === 0;
 const generationParams = { steps: value => Number.isInteger(value) && value >= 1 && value <= 100, guidance: value => finiteRange(value, 0, 20), width: rasterSize, height: rasterSize };
-export const GENERATIVE_OPERATIONS = Object.freeze(['prompt', 'generate_image', 'generate_video', 'frame']);
+export const GENERATIVE_OPERATIONS = Object.freeze(['prompt', 'generate_text', 'generate_image', 'generate_video', 'frame']);
 
 export const OPERATIONS = Object.freeze({
   upl: { output: 'upl', inputs: {}, params: {} },
   feature: { output: 'scalar', inputs: { input: 'upl' }, params: { index: value => Number.isInteger(value) && unit(value / 3) } },
   constant: { output: 'scalar', inputs: {}, params: { value: unit } },
   prompt: { output: 'prompt', inputs: { condition: 'scalar' }, params: { low: promptText, high: promptText, threshold: unit } },
-  generate_image: { output: 'image', inputs: { prompt: 'prompt' }, params: { model: value => ['tiny-sd', 'flux2-klein-4b'].includes(value), ...generationParams } },
-  generate_video: { output: 'video', inputs: { prompt: 'prompt' }, params: { model: value => value === 'ltx-video', ...generationParams, num_frames: value => Number.isInteger(value) && value >= 1 && value <= 121 && (value - 1) % 8 === 0 } },
+  generate_text: { output: 'text', inputs: { prompt: textInputTypes }, params: { model: value => ['qwen3-0.6b', 'qwen3-8b'].includes(value), system: systemText, max_tokens: value => Number.isInteger(value) && value >= 1 && value <= 512, temperature: value => finiteRange(value, 0, 2) } },
+  generate_image: { output: 'image', inputs: { prompt: textInputTypes }, params: { model: value => ['tiny-sd', 'flux2-klein-4b'].includes(value), ...generationParams } },
+  generate_video: { output: 'video', inputs: { prompt: textInputTypes }, params: { model: value => value === 'ltx-video', ...generationParams, num_frames: value => Number.isInteger(value) && value >= 1 && value <= 121 && (value - 1) % 8 === 0 } },
   frame: { output: 'image', inputs: { video: 'video' }, params: { index: value => Number.isInteger(value) && value >= 0 && value <= 120 } },
   gradient: { output: 'image', inputs: { condition: 'scalar' }, params: { low: rgb, high: rgb, angle: signedUnit } },
   disk: { output: 'image', inputs: { image: 'image', condition: 'scalar' }, params: { color: rgb, center: value => vector(value, 2), radius: value => finiteRange(value, 0.02, 1), softness: value => finiteRange(value, 0.001, 1) } },
@@ -44,10 +54,16 @@ function validId(value) {
 
 export function validateGraph(graph) {
   exactKeys(graph, ['version', 'id', 'encoder', 'nodes', 'output'], 'graph');
-  if (graph.version !== GRAPH_VERSION) throw new Error('Unsupported graph version');
+  if (![GRAPH_VERSION, SEMANTIC_GRAPH_VERSION].includes(graph.version)) throw new Error('Unsupported graph version');
   if (!validId(graph.id)) throw new Error('Invalid campaign ID');
-  exactKeys(graph.encoder, ['id', 'dimension'], 'encoder');
-  if (graph.encoder.id !== ENCODER.id || graph.encoder.dimension !== ENCODER.dimension) throw new Error('Unsupported encoder contract');
+  if (graph.version === GRAPH_VERSION) {
+    exactKeys(graph.encoder, ['id', 'dimension'], 'encoder');
+    if (graph.encoder.id !== ENCODER.id || graph.encoder.dimension !== ENCODER.dimension) throw new Error('Unsupported encoder contract');
+  } else {
+    exactKeys(graph.encoder, [...Object.keys(semanticEncoder), 'dimension'], 'encoder');
+    if (!semanticDimensions.includes(graph.encoder.dimension)
+        || Object.entries(semanticEncoder).some(([name, value]) => graph.encoder[name] !== value)) throw new Error('Unsupported pinned semantic encoder contract');
+  }
   if (!Array.isArray(graph.nodes) || graph.nodes.length < 1 || graph.nodes.length > 64) throw new Error('Graph needs 1–64 nodes');
   const nodes = new Map();
   for (const node of graph.nodes) {
@@ -58,6 +74,10 @@ export function validateGraph(graph) {
     exactKeys(node.inputs, Object.keys(specification.inputs), `${node.id} inputs`);
     exactKeys(node.params, Object.keys(specification.params), `${node.id} params`);
     for (const [name, check] of Object.entries(specification.params)) {
+      if (node.op === 'feature' && name === 'index') {
+        if (!Number.isInteger(node.params.index) || node.params.index < 0 || node.params.index >= graph.encoder.dimension) throw new Error(`${node.id}.index: outside encoder dimension`);
+        continue;
+      }
       if (!check(node.params[name])) throw new Error(`${node.id}.${name}: invalid value or range`);
     }
     if (node.op === 'brand' && (node.params.x + node.params.cell * 7 > 1 || node.params.y + node.params.cell * 9 > 1)) throw new Error('Brand plate must fit within image');
@@ -70,7 +90,7 @@ export function validateGraph(graph) {
     for (const [port, expectedType] of Object.entries(OPERATIONS[node.op].inputs)) {
       const source = nodes.get(node.inputs[port]);
       if (!source) throw new Error(`${node.id}.${port}: unknown reference ${node.inputs[port]}`);
-      if (OPERATIONS[source.op].output !== expectedType) throw new Error(`${node.id}.${port}: expected ${expectedType}, got ${OPERATIONS[source.op].output}`);
+      if (!(Array.isArray(expectedType) ? expectedType : [expectedType]).includes(OPERATIONS[source.op].output)) throw new Error(`${node.id}.${port}: expected ${expectedType}, got ${OPERATIONS[source.op].output}`);
       if (node.op === 'frame' && node.params.index >= source.params.num_frames) throw new Error(`${node.id}.index exceeds video frame count`);
     }
   }
@@ -203,6 +223,7 @@ export function parseSource(source) {
 
 export function printSource(graph) {
   const { ordered } = validateGraph(graph);
+  if (graph.version !== GRAPH_VERSION) throw new Error('Textual source/decompilation supports graph.v1 only; preserve graph.v2 JSON and full encoder metadata');
   const statements = ordered.map(node => {
     const args = [...Object.entries(node.inputs).map(([name, reference]) => `${name}: ${reference}`), ...Object.entries(node.params).map(([name, value]) => `${name}: ${JSON.stringify(value)}`)];
     return `${node.id} = ${node.op}(${args.join(', ')})`;
@@ -255,6 +276,7 @@ export function createReference(graph) {
 }
 
 export function assertDeterministicGraph(graph, backend = 'Browser compiler') {
+  if (graph.version !== GRAPH_VERSION) throw new Error(`${backend} cannot execute graph.v2 semantic UPLs; legacy operators are not migrated. Use a frozen dataset with the Python-only native32 student.`);
   const unsupported = graph.nodes.find(node => GENERATIVE_OPERATIONS.includes(node.op));
   if (unsupported) throw new Error(`${backend} cannot execute ${unsupported.op}; use the Python RasterTeacher / angelos_ml.dataset with explicitly downloaded, pinned local models. No procedural fallback is available.`);
 }

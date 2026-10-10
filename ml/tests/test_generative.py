@@ -62,7 +62,7 @@ class GenerativeGraphTests(unittest.TestCase):
             source = "import {graphHash} from './src/core/graph.js'; console.log(await graphHash(JSON.parse(process.argv[1])));"
             result = subprocess.run(["node", "--input-type=module", "-e", source, json.dumps(graph)], cwd=ROOT, text=True, capture_output=True, check=True)
             self.assertEqual(graph_hash(graph), result.stdout.strip())
-        self.assertEqual(len(MODELS), 3)
+        self.assertEqual(len(MODELS), 5)
         for specification in MODELS.values():
             self.assertRegex(specification.revision, r"^[0-9a-f]{40}$")
         with self.assertRaises(TypeError):
@@ -264,6 +264,8 @@ class GenerativeGraphTests(unittest.TestCase):
 
     def test_offline_adapter_loads_exact_local_snapshot_and_never_downloads(self):
         for model, specification in MODELS.items():
+            if specification.kind == "text":
+                continue
             pipeline = Mock()
             pipeline.to.return_value = pipeline
             with patch(f"diffusers.{specification.pipeline}.from_pretrained", return_value=pipeline) as loader, patch("huggingface_hub.snapshot_download", side_effect=AssertionError("Runtime attempted a download")):

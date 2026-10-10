@@ -9,14 +9,23 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "build:site": "node scripts/build-site.js",
     "test": "node --test test/*.test.js",
     "test:browser": "playwright test",
+    "test:showcase": "playwright test showcase.spec.js",
     "compile": "node src/cli.js compile",
     "compile:teacher": "node scripts/compile-teacher.js",
     "train": "node scripts/train.js",
     "train:fixture": "node scripts/train.js --fixture-mlp examples/aurora.ang",
     "dataset": "node scripts/dataset.js",
     "models": "node scripts/models.js",
+    "text": "node scripts/text.js",
+    "rl": "node scripts/rl.js",
+    "feedback:export": "node scripts/export-feedback.js",
+    "hd": "node scripts/hd.js",
+    "comfy": "node scripts/comfy.js",
+    "comfy:program": "node scripts/comfy-program.js",
+    "upl": "node scripts/upl.js",
     "test:ml": "PYTHONPATH=ml .venv/bin/python -m unittest discover -s ml/tests"
   },
   "devDependencies": {

@@ -1,10 +1,10 @@
 # Open-weight graph teachers
 
-This document covers the **currently implemented** three-model allowlist only.
+This document covers the **currently implemented** five-model allowlist only.
 For the broader, capability-by-capability research and proposed replacements, see
 [the full creative-model audit](MODEL-COVERAGE.md). Research entries are not executable adapters.
 
-Graph IR, raster teacher execution, dataset collection, student training, and deployment are separate stages. Generative graph nodes call actual local Diffusers pipelines; they never substitute gradients, noise textures, synthetic test pixels, or an untrained network for a pretrained model.
+Graph IR, raster teacher execution, dataset collection, student training, and deployment are separate stages. Generative graph nodes call local Diffusers or Transformers pipelines; they never substitute gradients, noise textures, synthetic test pixels, or an untrained network for a pretrained model.
 
 ## Pinned allowlist
 
@@ -15,6 +15,10 @@ Only these model IDs are accepted. Repository names and revisions cannot be supp
 | `tiny-sd` | `segmind/tiny-sd` | `cad0bd7495fa6c4bcca01b19a723dc91627fe84f` | `StableDiffusionPipeline` | `.bin`, restricted weights-only loading |
 | `flux2-klein-4b` | `black-forest-labs/FLUX.2-klein-4B` | `e7b7dc27f91deacad38e78976d1f2b499d76a294` | `Flux2KleinPipeline` | safetensors |
 | `ltx-video` | `Lightricks/LTX-Video` | `8984fa25007f376c1a299016d0957a37a2f797bb` | `LTXPipeline` | safetensors |
+| `qwen3-0.6b` | `Qwen/Qwen3-0.6B` | `c1899de289a04d12100db370d81485cdf75e47ca` | `AutoModelForCausalLM` | safetensors |
+| `qwen3-8b` | `Qwen/Qwen3-8B` | `b968826d9c46dd6066d109eabc6255188de91218` | `AutoModelForCausalLM` | safetensors |
+
+Both Qwen checkpoints are Apache-2.0; see [the text-node contract and immutable model cards](TEXT.md). `prompt` remains deterministic; `generate_text` is actual language-model inference. Real Qwen3-0.6B execution is recorded separately from adapter tests; Qwen3-8B execution is not claimed.
 
 Review the model cards and licenses before downloading or distributing derivatives: [tiny-sd, CreativeML OpenRAIL-M](https://huggingface.co/segmind/tiny-sd/tree/cad0bd7495fa6c4bcca01b19a723dc91627fe84f), [FLUX.2 klein 4B, Apache-2.0](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294), and [LTX-Video, custom open-weights license](https://huggingface.co/Lightricks/LTX-Video/tree/8984fa25007f376c1a299016d0957a37a2f797bb). Open weights do not imply identical licensing terms.
 

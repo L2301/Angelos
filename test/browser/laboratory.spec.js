@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 test('laboratory loads typed graph, rejects invalid source, and remains usable on narrow screens', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#graph-count')).toContainText('typed nodes');
   await expect(page.locator('#profile option')).toHaveCount(3);
   await expect(page.locator('#gpu-status')).toContainText('WebGPU student · active');
@@ -16,7 +16,7 @@ test('laboratory loads typed graph, rejects invalid source, and remains usable o
   await page.getByRole('button', { name: 'Check & apply' }).click();
   await expect(page.locator('#notice')).toBeVisible();
   await page.setViewportSize({ width: 430, height: 932 });
-  await expect(page.getByRole('heading', { name: 'One graph. One creative model.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create an ad. Teach the next version.' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   expect(errors).toEqual([]);
 });
@@ -26,7 +26,7 @@ test('real browser GPU matches the trained PyTorch fixture and CPU reference', a
   const fixturePath = resolve('artifacts', pointer.file.replace(/\.json$/, '.parity.json'));
   const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
   test.skip(fixture.nativeResolution === 32, 'Diffusion numerical parity is exercised by diffusion.spec.js');
-  await page.goto('/');
+  await page.goto('/lab');
   const result = await page.evaluate(async fixture => {
     const { createGpuRenderer, renderCpu } = await import('/src/browser/student.js');
     const { createReference } = await import('/src/core/graph.js');
@@ -70,7 +70,7 @@ test('real browser GPU matches the trained PyTorch fixture and CPU reference', a
 });
 
 test('saved UPL drives GPU creative, qualified exposure, click and multidimensional human review', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#gpu-status')).toContainText('WebGPU student · active', { timeout: 30000 });
   await page.locator('#delivered').scrollIntoViewIfNeeded();
   await expect(page.locator('#show-placement')).toBeEnabled({ timeout: 30000 });
@@ -80,23 +80,23 @@ test('saved UPL drives GPU creative, qualified exposure, click and multidimensio
   await expect(page.locator('#exposure-status')).toContainText('Click attributed');
   await page.locator('#save-review').click();
   await expect(page.locator('#notice')).toContainText('Review saved');
-  await page.getByRole('button', { name: 'Learning ledger' }).click();
+  await page.getByRole('button', { name: 'Feedback records', exact: true }).click();
   await expect(page.locator('#ledger-json')).toContainText('"clicks": 1');
   await expect(page.locator('#ledger-json')).toContainText('"reviews": 1');
 });
 
 test('hidden creative cannot qualify and unsaved UPL changes cannot be reviewed', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#gpu-status')).toContainText('WebGPU student · active');
   await page.locator('#delivered').scrollIntoViewIfNeeded();
   await expect(page.locator('#show-placement')).toBeEnabled();
   const before = await (await page.request.get('/api/metrics')).json();
   await page.locator('#show-placement').click();
-  await page.getByRole('button', { name: 'Personal latents' }).click();
+  await page.getByRole('button', { name: 'People & permissions', exact: true }).click();
   await page.waitForTimeout(1300);
   const after = await (await page.request.get('/api/metrics')).json();
   expect(after.impressions).toBe(before.impressions);
-  await page.getByRole('button', { name: 'Campaign studio' }).click();
+  await page.getByRole('button', { name: 'Build an ad', exact: true }).click();
   await page.locator('#energy').fill('0.91');
   await page.locator('#energy').dispatchEvent('input');
   await page.locator('#save-review').click();
@@ -104,7 +104,7 @@ test('hidden creative cannot qualify and unsaved UPL changes cannot be reviewed'
 });
 
 test('measure bounded 192-pixel inference on the actual adapter', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#render-time')).not.toHaveText('—');
   const result = await page.evaluate(async () => {
     const { createGpuRenderer } = await import('/src/browser/student.js');
@@ -137,7 +137,7 @@ test('new diffusion variations invalidate exposure and generative presets never 
   const state = await (await page.request.get('/api/state')).json();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#show-placement')).toBeEnabled();
   const previousSeed = await page.locator('#creative-seed').textContent();
   const previousImage = await page.locator('#delivered').evaluate(canvas => canvas.toDataURL());
@@ -146,6 +146,7 @@ test('new diffusion variations invalidate exposure and generative presets never 
   await expect(page.locator('#show-placement')).toBeEnabled();
   expect(await page.locator('#delivered').evaluate(canvas => canvas.toDataURL())).not.toBe(previousImage);
   await expect(page.locator('#click-ad')).toBeDisabled();
+  await page.locator('#recipe-tools > summary').click();
   for (const model of ['flux2-klein-4b', 'ltx-video']) {
     await page.locator('#teacher-example').selectOption(model);
     const applied = page.waitForResponse(response => response.url().endsWith('/api/graph') && response.request().method() === 'POST');
@@ -167,7 +168,7 @@ test('new diffusion variations invalidate exposure and generative presets never 
 });
 
 test('revocation stops rendering and a failed profile switch clears previous creatives', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/lab');
   await expect(page.locator('#gpu-status')).toContainText('WebGPU student · active');
   await expect(page.locator('#render-time')).not.toHaveText('—');
   const previousImage = await page.locator('#delivered').evaluate(canvas => canvas.toDataURL());
@@ -182,11 +183,11 @@ test('revocation stops rendering and a failed profile switch clears previous cre
   await page.unroute('**/api/snapshot');
   await page.locator('#profile').selectOption(selected);
   await expect(page.locator('#show-placement')).toBeEnabled();
-  await page.getByRole('button', { name: 'Personal latents' }).click();
+  await page.getByRole('button', { name: 'People & permissions', exact: true }).click();
   await page.locator('#allow-personalization').uncheck();
   await page.locator('#save-consent').click();
   await expect(page.locator('#notice')).toContainText('Consent updated');
-  await page.getByRole('button', { name: 'Campaign studio' }).click();
+  await page.getByRole('button', { name: 'Build an ad', exact: true }).click();
   const deniedImage = await page.locator('#delivered').evaluate(canvas => canvas.toDataURL());
   await page.locator('#energy').fill('0.1');
   await page.locator('#energy').dispatchEvent('input');

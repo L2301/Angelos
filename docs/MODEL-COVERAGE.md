@@ -1,6 +1,6 @@
 # Full creative-model capability audit
 
-Research date: **2026-10-06**. This replaces the three-model list as the **planning scope**, not as the runtime allowlist. The existing [implemented adapters](MODELS.md) remain exactly what they were. No new weights, adapters or quality benchmarks are implied by this report.
+Research date: **2026-10-06**. This replaces the original three-model list as the **planning scope**, not as the runtime allowlist. No new weights, adapters or quality benchmarks are implied by this report. Implementation update, 2026-10-08: the [runtime registry](MODELS.md) now also includes separate Qwen3 text-generation adapters; see [TEXT.md](TEXT.md). The broader research catalog is still not implemented coverage.
 
 ## What was actually inspected
 
@@ -128,6 +128,6 @@ Every adapter needs an offline contract test **and** a separately reported real-
 
 ## Current implementation boundary
 
-Angelos presently has registered Tiny-SD, FLUX.2 Klein 4B and LTX-Video adapters, with live evidence only for the documented Tiny-SD path. Its graph does not yet expose the full conditioning supported even by those upstream models. The browser student is genuine diffusion but is a small, freshly trained 32×32 model whose reported UPL-conditioning audit failed; it is not a demonstrated personalized ad generator. See [measured execution](DIFFUSION-EXECUTION.md).
+At the audit date, Angelos had registered Tiny-SD, FLUX.2 Klein 4B and LTX-Video adapters, with live evidence only for the documented Tiny-SD path. The subsequent Qwen3 text implementation is documented separately in [TEXT.md](TEXT.md). The graph does not yet expose the full conditioning supported even by these upstream models. The browser student is genuine diffusion but is a small, freshly trained 32×32 model whose reported UPL-conditioning audit failed; it is not a demonstrated personalized ad generator. See [measured execution](DIFFUSION-EXECUTION.md).
 
 This audit changes the scope and proposed design. It does **not** silently turn research candidates into implemented support, weaken the runtime allowlist, import Rhizome code, or download dozens of checkpoints.

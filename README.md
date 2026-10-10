@@ -1,16 +1,18 @@
 # Angelos
 
+**GPU Accelerated Ads — a proof of concept by Louis Anderson.**
+
 **Author a creative graph. Execute a teacher. Distill one diffusion model per campaign.**
 
 Angelos is a local research laboratory for UPL-conditioned creative generation.
 Its typed graph combines deterministic tensor image operations with stochastic,
-locally executed open-weight image/video models. The browser runs a separate,
+locally executed open-weight text/image/video models. The browser runs a separate,
 campaign-specific conditional diffusion student in WebGPU.
 
-This is not a finished ad-generation platform. The current student is a small,
-freshly trained **32×32 image-space U-Net**, not a pretrained photorealistic model.
-The enlarged preview is not genuine high-resolution output. Model capacity,
-training data, perceptual quality and conditioning need further research.
+This is not a finished ad-generation platform. The browser student remains a
+**32×32 regression model**. A separate SANA-Sprint baseline now produces genuine
+**1920×1080** imagery locally; that baseline is not yet an Angelos campaign-trained
+student. [Recorded HD evidence](docs/HD-EXECUTION.md) distinguishes those claims.
 
 The [full creative-model capability audit](docs/MODEL-COVERAGE.md) covers the
 broader intended graph: image editing/control, video, audio, avatars, language,
@@ -19,21 +21,88 @@ are research recommendations, not a claim that these adapters are implemented.
 
 ## Quick start
 
-Requires Node 24+, Python 3.11 and hardware WebGPU in Chrome. Teacher generation
-supports CPU, Apple MPS and CUDA; tested devices are listed in the execution report.
+Explore the idea with **Node 24+ only**. No Python, model download or GPU is needed
+for the explanatory homepage, recorded evidence, or graph/source exploration.
 
 ```sh
 npm ci
+npm start
+```
+
+Open `http://127.0.0.1:4310` for the concept site, or `/lab` for the local laboratory.
+Missing student weights are an explicit state, not substituted model output.
+The server binds only to loopback; its unauthenticated API must not be deployed publicly.
+
+For public sharing, use the [static-only GitHub Pages deployment](docs/DEPLOYMENT.md).
+The hosted lab link explains local setup; it does not expose the lab API or profiles.
+
+### Use ComfyUI to create the ad
+
+The local lab can also convert a [supported ComfyUI API graph into a typed program](docs/COMFYUI.md#workflow-to-program), then compile it back to API JSON. This preserves execution inputs rather than substituting another model. Use **Convert a ComfyUI graph to a program** in the lab, or `npm run comfy:program -- import INPUT.json --output NEW_OUTPUT.comfy.ang`. Unsupported nodes fail explicitly. This separate Comfy backend dialect is not the student-training language; translation does not train weights or execute the workflow.
+
+Keep your existing ComfyUI canvas, model loaders, samplers and compositing nodes.
+Install the local [Angelos custom nodes](integrations/comfyui_angelos/README.md),
+then export the **finished** creative with campaign/audience metadata and workflow
+provenance. [The walkthrough](docs/COMFYUI.md) explains the handoff and its limits.
+Angelos does not silently execute imported workflows, install their dependencies,
+or claim that exporting images has already distilled the graph into weights.
+
+The built-in typed graph remains a smaller inspectable alternative, not a
+replacement for ComfyUI. The lab walks from making the ad to audience variants,
+review, campaign training and candidate evaluation, in that order.
+
+### High-resolution baseline and learning experiments
+
+See [HD generation](docs/HD.md), [reward-alignment experiments](docs/HD-ALIGNMENT.md),
+and [the click + critic candidate loop](docs/RL.md). All are explicit operator
+actions. No paid jobs, nightly scheduler or automatic promotion is enabled.
+
+Research reviews: [diffusion](docs/RESEARCH-DIFFUSION.md),
+[distillation](docs/RESEARCH-DISTILLATION.md), [RL](docs/RESEARCH-RL.md),
+[advertising identity and richer UPL design](docs/RESEARCH-UPL.md).
+The four-coordinate encoder remains a **legacy regression fixture**. The new
+[UPL v2 path](docs/UPL.md) separates richer declared facts, expiring campaign-scoped
+events, a pinned local Qwen3 semantic encoder, and model-specific conditioning.
+The lab supports 128/256/**512**/1024-dimensional embeddings, immutable handoffs to
+ComfyUI, and explicit missing-checkpoint errors. It never pads four coordinates
+or silently feeds a new embedding into old student weights. The pretrained
+encoder is a semantic baseline, not a click-trained personality model; the HD
+student does not yet have a trained UPL adapter.
+See [actual local encoder and browser execution](docs/UPL-EXECUTION.md), including
+the synthetic 128/256/512/1024-dimensional comparison and its limitations.
+
+### Real local text generation
+
+`prompt()` formats/selects text deterministically. **`generate_text()` runs a
+pretrained Qwen model** and emits a separate `text` type; image/video prompt ports
+can consume either. The lab includes a manual text probe and a text → image preset.
+Neither loading that preset nor visiting the site downloads or runs teacher models.
+
+```sh
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -r ml/requirements-generative.txt
+npm run models -- download qwen3-0.6b
+```
+
+Then use **Generate text** in `/lab`. CPU/float32 is the explicit default;
+`ANGELOS_TEXT_DEVICE` and `ANGELOS_TEXT_DTYPE` configure the server's text worker.
+See [text execution and limits](docs/TEXT.md). Qwen3-8B is also registered but has
+not been smoke-tested with real weights here. Generated copy requires review.
+
+### Reproduce the image student
+
+Requires the Python environment above and hardware WebGPU in Chrome for playback.
+Teacher generation supports CPU, Apple MPS and CUDA; executed paths are identified
+in the [execution report](docs/DIFFUSION-EXECUTION.md).
+
+```sh
 npm run models -- list
 npm run models -- download tiny-sd
 npm run dataset -- examples/aurora-generative.ang
 npm run train -- examples/aurora-generative.ang 2000
-npm start
 ```
 
-Open `http://127.0.0.1:4310`. The server binds only to loopback. On Apple hardware,
+On Apple hardware,
 prefix dataset/training commands with `ANGELOS_DEVICE=mps`; on NVIDIA use `cuda`.
 CPU is the explicit default, not a hidden fallback. Model downloads happen only
 through the explicit download command, never by opening a graph or the UI.
@@ -41,6 +110,19 @@ through the explicit download command, never by opening a graph or the UI.
 Tiny-SD downloads roughly 1.1 GB. FLUX/LTX require substantially more memory and
 disk. Model licenses differ; consult [the pinned registry](docs/MODELS.md) before
 choosing a model. No weights or generated datasets are committed to GitHub.
+
+### Publish the explanation, not the API
+
+```sh
+npm run build:site
+npm run build:site -- artifacts/site-subpath /Angelos/
+```
+
+Upload the contents of `dist/` (root hosting), or the alternative output with its
+matching base path. Output directories must be new. The allowlisted static export
+includes the explanation, recorded proof and research documents, not profiles,
+model weights, inference endpoints or the live lab. Its `/lab/` is a local setup
+guide. Nothing is deployed automatically. See [the readiness audit](docs/SHOWCASE-AUDIT.md).
 
 ## What changed
 
@@ -65,7 +147,8 @@ choosing a model. No weights or generated datasets are committed to GitHub.
 ## Build workflow
 
 Examples: `examples/aurora-generative.ang` (small image teacher),
-`examples/aurora-flux.ang`, `examples/aurora-ltx.ang`, and `examples/aurora.ang`
+`examples/aurora-text.ang` (Qwen3 → Tiny-SD), `examples/aurora-flux.ang`,
+`examples/aurora-ltx.ang`, and `examples/aurora.ang`
 (the original deterministic regression fixture).
 
 ```sh
@@ -100,23 +183,28 @@ expose the creative before recording a click or review.
 ```sh
 npm test
 npm run test:ml
+npm run test:showcase
 npm run test:browser
 ```
 
-The browser suite needs a trained diffusion preview artifact and installed Chrome.
+The showcase suite needs installed Chrome but no model weights or trained artifact.
+The full browser suite needs a trained diffusion preview artifact and installed Chrome.
 It launches an isolated browser/test server and compares actual WebGPU inference
 against PyTorch fixtures. Offline provider tests use explicit test doubles;
 live model runs are reported separately. `npm run train:fixture` retains the old
 MLP solely for regression work and changes the local preview pointer.
 
-See [execution results](docs/DIFFUSION-EXECUTION.md), [diffusion format](docs/DIFFUSION.md),
+See [showcase validation](docs/SHOWCASE-EXECUTION.md), [diffusion execution results](docs/DIFFUSION-EXECUTION.md), [diffusion format](docs/DIFFUSION.md),
 [graph/data contracts](docs/CONTRACTS.md), and [model registry](docs/MODELS.md).
 
 ## Boundaries
 
-Still unfinished: useful high-resolution student quality, pretrained student
-initialization, learned UPL encoders, preference-critic training, nightly CTR-driven
-updates, quantization, production identity, real auctions and marketplace integration.
+Still unproven: campaign-trained high-resolution student quality, learned UPL
+encoders, a critic validated on substantial human ratings, measured click-rate
+lift and HD browser inference. Reward fitting and bounded candidate optimization
+are implemented experiments, not evidence that these quality gates have passed.
+Quantization, production identity, real auctions and marketplace integration
+remain unfinished.
 No recurring task, paid inference, external tracker or ad spending is enabled.
 
 This is a trusted local operator demo using synthetic adult profiles. Consent,

@@ -7,9 +7,9 @@ import { parseSource, printSource, graphHash, validateGraph, OPERATIONS, createR
 import { validateStudent } from '../src/browser/student.js';
 
 const appSource = readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
-const initialization = /^initialize\(\)\.catch\([^\n]+\);\s*$/m;
-assert.match(appSource, initialization, 'The VM harness must remove only the automatic initialization call');
-const executable = appSource.replace(/^import .+;\s*$/gm, '').replace(initialization, '');
+const initialization = /^initialize\s*\(\s*\)(?=\s*\.)/gm;
+assert.equal([...appSource.matchAll(initialization)].length, 1, 'The VM harness must gate exactly one automatic initialization call');
+const executable = appSource.replace(/^import .+;\s*$/gm, '').replace(initialization, 'globalThis.initialization = startInitialization()');
 const sources = Object.fromEntries(['aurora-generative', 'aurora-flux'].map(name => [name, readFileSync(new URL(`../examples/${name}.ang`, import.meta.url), 'utf8')]));
 
 function deferred() {
@@ -42,6 +42,7 @@ async function fixtureArtifact(id, source) {
 }
 
 async function laboratory(initialSource = sources['aurora-generative']) {
+  const startup = deferred();
   const draws = [];
   const calls = [];
   const requests = [];
@@ -52,13 +53,17 @@ async function laboratory(initialSource = sources['aurora-generative']) {
     { id: 'denied', name: 'Synthetic denied', facts: { ageBand: '65+', region: 'OTHER', openness: 0.9, energy: 0.8 }, consent: { personalization: false, telemetry: false, campaignIds: ['aurora'] } },
   ];
   const server = { source: initialSource, artifact: await fixtureArtifact('state-fixture-tiny', sources['aurora-generative']), claimCompatible: undefined };
-  const hooks = { beforeGraph: undefined, beforeArtifact: undefined, beforeRender: undefined };
+  const hooks = { beforeState: undefined, beforeGraph: undefined, beforeArtifact: undefined, beforeRender: undefined };
 
   function node(id = '') {
     return {
       id, value: '', textContent: '', disabled: false, hidden: false, width: 192, height: 192,
-      style: {}, children: [], classList: { add() {}, remove() {}, toggle() {} },
+      style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {} },
       setAttribute() {}, addEventListener() {},
+      closest(selector) {
+        assert.equal(selector, '.result-state');
+        return element('result-state');
+      },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) {
         this.children = children;
@@ -90,7 +95,10 @@ async function laboratory(initialSource = sources['aurora-generative']) {
     requests.push({ path, payload });
     let result;
     let status = 200;
-    if (path === '/api/state') result = { ...await graphState(), profiles };
+    if (path === '/api/state') {
+      await hooks.beforeState?.();
+      result = { ...await graphState(), profiles };
+    }
     else if (path === '/api/artifact') {
       await hooks.beforeArtifact?.();
       status = server.artifact ? 200 : 404;
@@ -125,6 +133,8 @@ async function laboratory(initialSource = sources['aurora-generative']) {
   const context = createContext({
     parseSource, printSource, graphHash, validateGraph, OPERATIONS, createReference, validateStudent,
     createGpuRenderer: createFakeRenderer, fetch: fetchState, structuredClone, crypto: webcrypto,
+    initializeUplLab: () => ({ sync() {} }),
+    startInitialization: () => startup.promise.then(() => context.app.initialize()),
     document: { getElementById: element, createElement: () => node(), createElementNS: () => node(), querySelectorAll: () => [], addEventListener() {} },
     window: { addEventListener() {}, removeEventListener() {} },
     setTimeout: () => 1, clearTimeout() {},
@@ -141,8 +151,35 @@ async function laboratory(initialSource = sources['aurora-generative']) {
   };`, context, { filename: 'web/app.js' });
   const app = context.app;
   const idle = () => settle(() => !app.read().rendering, 'Web state render loop did not settle');
-  return { app, server, hooks, draws, calls, requests, renderers, element, idle };
+  const start = () => { startup.resolve(); return context.initialization; };
+  return { app, server, hooks, draws, calls, requests, renderers, element, idle, start };
 }
+
+test('offline web state: gated startup retains the production success chain', async () => {
+  const lab = await laboratory();
+  assert.equal(lab.requests.length, 0, 'Constructing the harness must not start initialization');
+  await lab.start();
+  await lab.idle();
+  assert.equal(lab.requests.filter(request => request.path === '/api/state').length, 1);
+  assert.equal(lab.app.canRenderStudent(), true);
+  assert.equal(lab.element('result-state-title').textContent, 'Research preview ready');
+  assert.equal(lab.element('show-placement').disabled, false);
+});
+
+test('offline web state: startup errors reach the production persistent and transient notices', async () => {
+  const lab = await laboratory();
+  lab.hooks.beforeState = () => { throw new Error('Fixture: local state unavailable'); };
+  await assert.doesNotReject(lab.start());
+  assert.equal(lab.element('guide-error').hidden, false);
+  assert.match(lab.element('guide-error').textContent, /Fixture: local state unavailable/);
+  assert.match(lab.element('guide-error').textContent, /Reload after checking the local server/);
+  assert.equal(lab.element('result-state-title').textContent, 'The local lab is unavailable');
+  assert.match(lab.element('result-state-detail').textContent, /No successful generation is assumed/);
+  assert.equal(lab.element('notice').hidden, false);
+  assert.equal(lab.element('notice').textContent, 'Initialization failed: Fixture: local state unavailable');
+  assert.equal(lab.renderers.length, 0);
+  assert.equal(lab.draws.length, 0);
+});
 
 test('offline web state: queued variations cannot render or commit after selecting a nonconsenting profile', async context => {
   for (const composite of [false, true]) {

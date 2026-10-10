@@ -22,9 +22,10 @@ from torch.nn import functional
 
 from . import __version__
 from .data import profile_splits
-from .diffusion import ARCHITECTURE, DiffusionStudent, composite_rgb, cosine_schedule, sample_ddim, validate_seed
+from .diffusion import LEGACY_ENCODER, DiffusionStudent, conditioning_encoder, conditioning_tensor, composite_rgb, cosine_schedule, sample_ddim, validate_seed
 from .evaluate import BRAND_TOLERANCE, byte_rgba, float_rgba
 from .graph import validate_graph
+from .feedback import frozen_upl
 from .models import model_metadata
 from .providers import node_seed
 from .teacher import TensorTeacher, apply_brand, brand_masks, brand_probe_coordinates, pixel_coordinates
@@ -45,8 +46,7 @@ def verify_canonical_graph(graph, compiler_hash, canonical_path):
     computed = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     if computed != compiler_hash.lower():
         raise ValueError("Compiler graph hash does not match canonical file")
-    if graph.get("encoder", {}).get("dimension") != 4:
-        raise ValueError("The diffusion student requires a four-dimensional encoder")
+    conditioning_encoder(graph.get("encoder"))
     return computed
 
 
@@ -61,7 +61,7 @@ def resolve_device(device):
 
 
 def validate_model_provenance(manifest, graph, allow_fixture):
-    nodes = {node["id"]: node for node in graph["nodes"] if node["op"] in ("generate_image", "generate_video")}
+    nodes = {node["id"]: node for node in graph["nodes"] if node["op"] in ("generate_text", "generate_image", "generate_video")}
     expected_ids = {node["params"]["model"] for node in nodes.values()}
     source = manifest["source"]
     injected = source == "injected-test-pipeline"
@@ -84,8 +84,9 @@ def validate_model_provenance(manifest, graph, allow_fixture):
         if "safetensors" in metadata and metadata["safetensors"] != pinned["safetensors"]:
             raise ValueError("Dataset model safetensors metadata contradicts the pinned registry")
         backend = metadata.get("backend")
-        if backend not in ("diffusers", "injected-test-pipeline"):
-            raise ValueError("Dataset model backend must explicitly identify diffusers or injected-test-pipeline")
+        expected_backend = "transformers" if pinned["kind"] == "text" else "diffusers"
+        if backend not in (expected_backend, "injected-test-pipeline"):
+            raise ValueError("Dataset model backend must match its model kind or identify injected-test-pipeline")
         if backend == "injected-test-pipeline" and not (injected and allow_fixture):
             raise ValueError("Injected model backends require an injected-test-pipeline source and explicit fixture opt-in")
         models[identifier] = metadata
@@ -95,15 +96,19 @@ def validate_model_provenance(manifest, graph, allow_fixture):
         if manifest["synthetic"] is not True or not any(metadata["backend"] == "injected-test-pipeline" for metadata in models.values()):
             raise ValueError("Injected fixture provenance requires synthetic=true and an injected model backend")
     elif nodes:
-        if source != "diffusers-local-open-weights":
-            raise ValueError("Generated model provenance requires a diffusers-local-open-weights source")
+        expected_source = "transformers-diffusers-local-open-weights" if any(node["op"] == "generate_text" for node in nodes.values()) else "diffusers-local-open-weights"
+        if source != expected_source:
+            raise ValueError(f"Generated model provenance requires a {expected_source} source")
     elif not procedural:
         raise ValueError("Graphs without generative models require explicit procedural fixture provenance")
     return nodes, models, procedural or injected
 
 
-def validate_sample_generations(sample, nodes, models, teacher_seed):
+def validate_sample_generations(sample, nodes, models, teacher_seed, graph=None):
+    has_text = any(node["op"] == "generate_text" for node in nodes.values())
     if "generations" not in sample:
+        if has_text:
+            raise ValueError("Text generation requires complete sample provenance")
         return
     generations = sample["generations"]
     if not isinstance(generations, list):
@@ -118,6 +123,16 @@ def validate_sample_generations(sample, nodes, models, teacher_seed):
         observed.add(identifier)
         node = nodes[identifier]
         metadata = models[node["params"]["model"]]
+        if has_text and (not {"node", "seed", "prompt", "model", "params"}.issubset(generation) or generation["model"] != metadata):
+            raise ValueError("Text-conditioned graphs require complete generation bindings")
+        if node["op"] == "generate_text":
+            from .text_contract import MAX_TEXT_UNITS, bounded_text, validate_text_result
+
+            required = {"node", "seed", "prompt", "model", "params", "text", "usage", "finish_reason"}
+            if set(generation) != required or generation["model"] != metadata:
+                raise ValueError("Text generation requires complete matching provenance")
+            bounded_text(generation["prompt"], MAX_TEXT_UNITS, "Text generation prompt")
+            validate_text_result({name: generation[name] for name in ("text", "usage", "finish_reason")}, node["params"]["max_tokens"])
         if "model" in generation:
             supplied = generation["model"]
             if not isinstance(supplied, dict) or supplied.get("id") != metadata["id"]:
@@ -130,9 +145,27 @@ def validate_sample_generations(sample, nodes, models, teacher_seed):
             raise ValueError("Sample generation seed contradicts the teacher seed and graph node")
     if observed != set(nodes):
         raise ValueError("Sample generation records must cover all generative graph nodes")
+    by_node = {generation["node"]: generation for generation in generations}
+    graph_nodes = {node["id"]: node for node in graph["nodes"]} if graph is not None else {}
+    for identifier, node in nodes.items():
+        source = node["inputs"]["prompt"]
+        if source in nodes and nodes[source]["op"] == "generate_text":
+            if by_node[identifier].get("prompt") != by_node[source]["text"]:
+                raise ValueError("Generated text does not match the downstream prompt binding")
+        elif has_text and source in graph_nodes and graph_nodes[source]["op"] == "prompt":
+            prompt_node = graph_nodes[source]
+            condition_node = graph_nodes[prompt_node["inputs"]["condition"]]
+            condition = sample["upl"][int(condition_node["params"]["index"])] if condition_node["op"] == "feature" else condition_node["params"]["value"]
+            parameters = prompt_node["params"]
+            expected = parameters["low"] if condition < parameters["threshold"] else parameters["high"]
+            expected = expected.replace("{condition}", f"{condition:.6f}")
+            if by_node[identifier]["prompt"] != expected:
+                raise ValueError("Text-conditioned generation prompt contradicts the exposure-time profile")
 
 
 def load_dataset(path, graph, graph_hash, allow_procedural=False):
+    validate_graph(graph)
+    encoder = conditioning_encoder(graph.get("encoder"))
     path = Path(path)
     manifest_path = path.with_suffix(".manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -145,6 +178,11 @@ def load_dataset(path, graph, graph_hash, allow_procedural=False):
     if type(manifest["synthetic"]) is not bool or not isinstance(manifest["source"], str) or not manifest["source"].strip():
         raise ValueError("Dataset source and synthetic provenance must be explicit")
     generation_nodes, models, procedural = validate_model_provenance(manifest, graph, allow_procedural)
+    has_text = any(node["op"] == "generate_text" for node in generation_nodes.values())
+    if has_text and not isinstance(manifest["samples"], list):
+        raise ValueError("Text generation requires per-sample provenance, not just a sample count")
+    if encoder != LEGACY_ENCODER and not isinstance(manifest["samples"], list):
+        raise ValueError("UPLv2 datasets require per-sample frozen input bundles")
     with np.load(path, allow_pickle=False) as archive:
         if not {"images", "upl", "split", "teacher_seed"}.issubset(archive.files):
             raise ValueError("Dataset requires images, upl, split, teacher_seed arrays")
@@ -153,8 +191,9 @@ def load_dataset(path, graph, graph_hash, allow_procedural=False):
     count = len(images)
     if images.dtype != np.float32 or images.shape != (count, 3, 32, 32) or not np.isfinite(images).all() or ((images < 0) | (images > 1)).any():
         raise ValueError("Dataset images must be float32 [N,3,32,32] in [0,1]")
-    if profiles.dtype != np.float32 or profiles.shape != (count, 4) or not np.isfinite(profiles).all() or ((profiles < 0) | (profiles > 1)).any():
-        raise ValueError("Dataset upl must be float32 [N,4] in [0,1]")
+    if profiles.dtype != np.float32 or profiles.shape != (count, encoder["dimension"]):
+        raise ValueError("Dataset UPL must be float32 [N, encoder.dimension]")
+    conditioning_tensor(profiles, encoder, batched=True)
     if split.shape != (count,) or split.dtype.kind not in "iu" or not np.isin(split, (0, 1)).all():
         raise ValueError("Dataset split must be integer [N], 0=train and 1=heldout")
     if seeds.shape != (count,) or seeds.dtype.kind not in "iu" or ((seeds < 0) | (seeds >= 2 ** 53)).any():
@@ -164,14 +203,31 @@ def load_dataset(path, graph, graph_hash, allow_procedural=False):
         raise ValueError("Dataset manifest sample count does not match arrays")
     if manifest.get("graphComplete") is False:
         raise ValueError("Dataset must contain complete graph outputs")
+    person_sets = [set(), set()]
     if isinstance(manifest["samples"], list):
         for index, sample in enumerate(manifest["samples"]):
             if not isinstance(sample, dict):
                 raise ValueError("Dataset sample provenance must be objects")
             expected = {"index": index, "upl": profiles[index].tolist(), "split": int(split[index]), "teacherSeed": int(seeds[index])}
+            if has_text and not set(expected).issubset(sample):
+                raise ValueError("Text generation requires complete profile/seed sample bindings")
             if any(key in sample and sample[key] != value for key, value in expected.items()):
                 raise ValueError("Dataset sample provenance does not match arrays")
-            validate_sample_generations(sample, generation_nodes, models, int(seeds[index]))
+            if encoder != LEGACY_ENCODER:
+                if not set(expected).issubset(sample) or sample.get("encoder") != encoder:
+                    raise ValueError("UPLv2 sample must bind encoder, vector, split and teacher seed")
+                profile_id = sample.get("profileId")
+                if (not isinstance(profile_id, str) or not profile_id.strip() or profile_id != profile_id.strip()
+                        or len(profile_id) > 128 or any(ord(character) < 32 or ord(character) == 127 for character in profile_id)):
+                    raise ValueError("UPLv2 sample requires a stable person profileId, not a vector or audience hash")
+                person_sets[int(split[index])].add(profile_id)
+                frozen_upl(sample, graph["id"])
+            validate_sample_generations(sample, generation_nodes, models, int(seeds[index]), graph)
+    if encoder != LEGACY_ENCODER:
+        if person_sets[0] & person_sets[1]:
+            raise ValueError("Training and heldout person profileIds must be disjoint, even when their UPL vectors differ")
+        if any(len(people) < 2 for people in person_sets):
+            raise ValueError("Each UPLv2 split needs at least two distinct person profileIds")
     profile_sets = [set(map(tuple, profiles[split == partition].tolist())) for partition in (0, 1)]
     if any(len(values) < 2 for values in profile_sets):
         raise ValueError("Each split needs at least two distinct UPLs")
@@ -191,6 +247,11 @@ def load_dataset(path, graph, graph_hash, allow_procedural=False):
         "trainTeacherSeedCount": len(np.unique(seeds[split == 0])),
         "heldoutTeacherSeedCount": len(np.unique(seeds[split == 1])),
     }
+    if encoder != LEGACY_ENCODER:
+        provenance.update(trainProfileCount=len(person_sets[0]), heldoutProfileCount=len(person_sets[1]),
+                          trainUplCount=len(profile_sets[0]), heldoutUplCount=len(profile_sets[1]),
+                          splitProfileIds={"train": sorted(person_sets[0]), "heldout": sorted(person_sets[1])},
+                          splitPolicy="person profileId disjoint; never derive identity from changing vectors, facts or recent intent")
     return arrays, provenance
 
 
@@ -200,6 +261,8 @@ def generate_procedural_fixture(output, graph, compiler_hash, canonical_path, se
     teacher_seed is retained for interchange but does not affect this procedural
     teacher. Only inference noise in the actual diffusion student is stochastic.
     """
+    if conditioning_encoder(graph.get("encoder")) != LEGACY_ENCODER:
+        raise ValueError("Procedural profile generation is legacy-only; use explicit frozen UPLv2 data")
     verified = verify_canonical_graph(graph, compiler_hash, canonical_path)
     validate_seed(seed)
     output = Path(output)
@@ -335,7 +398,7 @@ def raster_evaluation(model, arrays, graph, schedule, artifact_id, graph_hash, s
         "rasterEvaluationCount": len(raw_cases), "evaluationWidth": 32, "evaluationHeight": 32,
     }
     fixture = {
-        "format": "angelos.parity.v1", "artifactId": artifact_id, "graphHash": graph_hash,
+        "format": "angelos.parity.v1" if model.encoder == LEGACY_ENCODER else "angelos.diffusion-python-checks.v2", "artifactId": artifact_id, "graphHash": graph_hash,
         "floatAbsoluteTolerance": 0.001, "byteAbsoluteTolerance": 1,
         "byteRounding": "floor(clamp(channel,0,1)*255+0.5)", "colorSpace": "display-encoded-rgb",
         "nativeResolution": 32, "rasterCases": cases,
@@ -361,7 +424,7 @@ def train_diffusion(graph, compiler_hash, dataset=None, canonical_path=None, ste
     torch.set_num_threads(threads)
     torch.manual_seed(seed)
     started = time.monotonic()
-    model = DiffusionStudent().to(target_device)
+    model = DiffusionStudent(graph["encoder"]).to(target_device)
     initial = torch.cat([parameter.detach().cpu().flatten() for parameter in model.parameters()])
     schedule = cosine_schedule()
     bank = evaluation_bank(arrays, (seed + 2) % 2 ** 32)
@@ -431,12 +494,16 @@ def train_diffusion(graph, compiler_hash, dataset=None, canonical_path=None, ste
         "noiseSchedule": {"name": "cosine", "offset": 0.008, "maxBeta": 0.999, "terminalAlpha": schedule["alphaCumprod"][-1]},
         "evaluationNoiseSeed": (seed + 2) % 2 ** 32, "evaluationNoiseExamples": len(bank[0]),
         "encoderFrozen": True, "pretrained": False, "promoted": False,
+        "browserExportSupported": model.encoder == LEGACY_ENCODER,
+        "fixtureOnly": provenance["proceduralFixture"] or model.encoder != LEGACY_ENCODER,
+        "nativeResolution": 32, "meets1080pRequirement": False,
+        "conditioning": "legacy-four-feature" if model.encoder == LEGACY_ENCODER else "semantic-vector-only; frozen recentIntent retained in dataset provenance, not adapter features",
         "torchVersion": torch.__version__, "numpyVersion": np.__version__, "packageVersion": __version__,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     artifact = {
-        "format": "angelos.diffusion.v1", "id": artifact_id, "campaignId": graph["id"], "graphHash": verified,
-        "encoder": copy.deepcopy(graph["encoder"]), "architecture": copy.deepcopy(ARCHITECTURE),
+        "format": model.artifact_format, "id": artifact_id, "campaignId": graph["id"], "graphHash": verified,
+        "encoder": copy.deepcopy(graph["encoder"]), "architecture": copy.deepcopy(model.architecture),
         "layers": model.export_layers(), "schedule": schedule, "brand": brand, "metrics": metrics, "training": training,
     }
     report = {

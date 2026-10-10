@@ -6,10 +6,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { parseSource, graphHash } from './core/graph.js';
 import { Store } from './core/store.js';
 import { validateStudent } from './browser/student.js';
+import { createTextRunner, validateTextRequest } from './text-runner.js';
+import { createUplRunner } from './upl-runner.js';
+import { UPL_DIMENSIONS } from './core/upl.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const maximumBody = 128 * 1024;
-const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 function checkedBody(value, keys, required = keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object');
@@ -41,6 +44,8 @@ function creativeId(artifactId, snapshotId, seed) {
 }
 
 export async function createLab(options = {}) {
+  const runText = options.textRunner ?? createTextRunner();
+  const runUpl = options.uplRunner ?? createUplRunner();
   const dataDirectory = options.dataDirectory ?? resolve(root, 'data');
   const artifactDirectory = options.artifactDirectory ?? resolve(root, 'artifacts');
   await mkdir(dataDirectory, { recursive: true });
@@ -51,9 +56,12 @@ export async function createLab(options = {}) {
   if (!await access(seedReceipt).then(() => true, () => false)) {
     if (store.listProfiles().length === 0) {
       const consent = { personalization: true, telemetry: true, training: true, campaignIds: ['aurora'] };
-      store.createProfile({ name: 'Alex · synthetic', facts: { ageBand: '25-34', region: 'NA', openness: 0.72, energy: 0.38 }, consent });
-      store.createProfile({ name: 'Sam · synthetic', facts: { ageBand: '45-54', region: 'EU', openness: 0.24, energy: 0.84 }, consent });
-      store.createProfile({ name: 'Jules · synthetic', facts: { ageBand: '35-44', region: 'APAC', openness: 0.5, energy: 0.6 }, consent });
+      store.createProfile({ name: 'Alex · synthetic', facts: { ageBand: '25-34', region: 'NA', openness: 0.72, energy: 0.38,
+        interests: ['hiking', 'landscape photography'], goals: ['weekend trail trips'], preferredStyles: ['quiet landscapes'], preferredLanguage: 'English' }, consent });
+      store.createProfile({ name: 'Sam · synthetic', facts: { ageBand: '45-54', region: 'EU', openness: 0.24, energy: 0.84,
+        interests: ['trail running', 'lightweight equipment'], goals: ['longer mountain runs'], preferredStyles: ['action photography'], preferredLanguage: 'English' }, consent });
+      store.createProfile({ name: 'Jules · synthetic', facts: { ageBand: '35-44', region: 'APAC', openness: 0.5, energy: 0.6,
+        interests: ['camping', 'nature'], goals: ['relaxed outdoor weekends'], preferredStyles: ['warm natural colors'], preferredLanguage: 'English' }, consent });
     }
     await writeFile(seedReceipt, 'Synthetic profiles initialized once. Deleted profiles are not recreated.\n');
   }
@@ -84,6 +92,15 @@ export async function createLab(options = {}) {
     return loaded.descriptor;
   }
 
+  async function artifactState(graph, hash) {
+    try {
+      const loaded = await student();
+      return { artifactAvailable: Boolean(loaded), artifactCompatible: Boolean(loaded && loaded.artifact.graphHash === hash && loaded.artifact.campaignId === graph.id), artifactError: null };
+    } catch (error) {
+      return { artifactAvailable: false, artifactCompatible: false, artifactError: `Preview artifact is unavailable: ${error.message}` };
+    }
+  }
+
   function metrics(campaignId) {
     const result = store.metrics({ campaignId });
     return { ...result, impressions: result.exposures, clicks: result.clickedExposures, reviewSources: result.reviews, reviews: result.reviews.operator + result.reviews.synthetic };
@@ -101,32 +118,100 @@ export async function createLab(options = {}) {
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (request.method === 'GET') {
         if (url.pathname === '/api/health') return send(response, 200, { ok: true, mode: 'local-synthetic-laboratory' });
+        if (url.pathname === '/api/hd-preview' || url.pathname === '/api/hd-image') {
+          const manifest = JSON.parse(await readFile(resolve(root, 'web/evidence/hd-manifest.json'), 'utf8'));
+          const pixels = await readFile(resolve(root, 'web/evidence/hd-baseline.png'));
+          if (createHash('sha256').update(pixels).digest('hex') !== manifest.imageSha256 || pixels.readUInt32BE(16) !== 1920 || pixels.readUInt32BE(20) !== 1080) throw new Error('Recorded HD image does not match its manifest');
+          if (url.pathname === '/api/hd-preview') return send(response, 200, { available: true, image: '/api/hd-image', width: 1920, height: 1080, nativeWidth: 1920, nativeHeight: 1088, mode: 'pretrained-baseline-not-campaign-trained', ...manifest });
+          response.writeHead(200, { 'Content-Type': 'image/png' });
+          return response.end(pixels);
+        }
         if (url.pathname === '/api/examples') {
-          const examples = [['tiny-sd', 'Tiny-SD image teacher', 'aurora-generative.ang'], ['flux2-klein-4b', 'FLUX.2 Klein 4B teacher', 'aurora-flux.ang'], ['ltx-video', 'LTX video → frame teacher', 'aurora-ltx.ang'], ['procedural', 'Deterministic regression fixture', 'aurora.ang']];
+          const examples = [['tiny-sd', 'Tiny-SD image teacher', 'aurora-generative.ang'], ['qwen3-text', 'Qwen3 text → image teacher', 'aurora-text.ang'], ['flux2-klein-4b', 'FLUX.2 Klein 4B teacher', 'aurora-flux.ang'], ['ltx-video', 'LTX video → frame teacher', 'aurora-ltx.ang'], ['procedural', 'Deterministic regression fixture', 'aurora.ang']];
           return send(response, 200, await Promise.all(examples.map(async ([id, label, file]) => ({ id, label, source: await readFile(resolve(root, 'examples', file), 'utf8') }))));
         }
         if (url.pathname === '/api/state') {
           const current = await campaign();
-          const loaded = await student();
-          return send(response, 200, { ...current, profiles: store.listProfiles(), artifactAvailable: Boolean(loaded), artifactCompatible: Boolean(loaded && loaded.artifact.graphHash === current.graphHash && loaded.artifact.campaignId === current.graph.id), metrics: metrics(current.graph.id) });
+          return send(response, 200, { ...current, profiles: store.listProfiles(), ...await artifactState(current.graph, current.graphHash), metrics: metrics(current.graph.id) });
         }
         if (url.pathname === '/api/profiles') return send(response, 200, store.listProfiles());
+        if (url.pathname === '/api/upl/ingredients') {
+          const campaignId = url.searchParams.get('campaignId');
+          if (campaignId !== (await campaign()).graph.id) throw new Error('Unknown campaign');
+          return send(response, 200, store.uplIngredients(url.searchParams.get('profileId'), campaignId));
+        }
         if (url.pathname === '/api/metrics') return send(response, 200, metrics((await campaign()).graph.id));
+        if (url.pathname === '/api/learning-feedback') return send(response, 200, store.learningFeedback({ campaignId: (await campaign()).graph.id }));
         if (url.pathname === '/api/training-rows') return send(response, 200, { rows: store.maturedRows({ campaignId: (await campaign()).graph.id }), note: 'Exposure-qualified mature synthetic examples; no trainer or promotion is scheduled.' });
         if (url.pathname === '/api/artifact') {
           const loaded = await student();
           if (!loaded) throw Object.assign(new Error('No trained preview artifact; run npm run train'), { status: 404 });
           return send(response, 200, loaded.artifact);
         }
-        const publicFiles = new Set(['/web/index.html', '/web/app.js', '/web/style.css', '/src/core/graph.js', '/src/browser/student.js', '/src/browser/diffusion.js', '/docs/PLAN.md', '/docs/CONTRACTS.md', '/docs/DIFFUSION.md', '/docs/MODELS.md']);
-        const path = url.pathname === '/' ? '/web/index.html' : url.pathname;
+        const publicFiles = new Set(['/web/index.html', '/web/app.js', '/web/style.css', '/web/text-lab.js', '/web/story.html', '/web/story.css', '/web/story.js', '/src/core/graph.js', '/src/browser/student.js', '/src/browser/diffusion.js', '/docs/PLAN.md', '/docs/CONTRACTS.md', '/docs/DIFFUSION.md', '/docs/MODELS.md', '/docs/DIFFUSION-EXECUTION.md', '/docs/MODEL-COVERAGE.md', '/docs/RESEARCH-IMAGE.md', '/docs/RESEARCH-VIDEO.md', '/docs/RESEARCH-AUDIO.md', '/docs/RESEARCH-TEXT-3D.md', '/docs/RESEARCH-OPERATIONS.md', '/docs/SHOWCASE-AUDIT.md', '/docs/TEXT.md']);
+        const path = url.pathname === '/' ? '/web/story.html' : ['/lab', '/lab/'].includes(url.pathname) ? '/web/index.html' : url.pathname;
+        publicFiles.add('/web/build-plan.js');
+        publicFiles.add('/web/comfy-lab.js');
+        publicFiles.add('/src/core/comfy-program.js');
+        publicFiles.add('/examples/aurora-comfy-api.json');
+        publicFiles.add('/web/upl-lab.js');
+        publicFiles.add('/docs/SHOWCASE-EXECUTION.md');
+        publicFiles.add('/integrations/comfyui_angelos/README.md');
+        for (const document of ['RESEARCH-RL', 'RESEARCH-DIFFUSION', 'RESEARCH-DISTILLATION', 'RESEARCH-UPL', 'UPL', 'UPL-EXECUTION', 'RL', 'HD', 'HD-ALIGNMENT', 'HD-EXECUTION', 'COMFYUI']) publicFiles.add(`/docs/${document}.md`);
+        publicFiles.add('/web/evidence/hd-baseline.png');
+        publicFiles.add('/web/evidence/hd-manifest.json');
+        for (const file of ['teacher.svg', 'student.svg', 'delivered.svg', 'manifest.json']) publicFiles.add(`/web/evidence/${file}`);
         if (!publicFiles.has(path)) throw Object.assign(new Error('Not found'), { status: 404 });
+        const contents = await readFile(resolve(root, `.${path}`));
         response.writeHead(200, { 'Content-Type': mimeTypes[extname(path)] ?? 'application/octet-stream' });
-        response.end(await readFile(resolve(root, `.${path}`)));
+        response.end(contents);
         return;
       }
       if (request.method !== 'POST') throw Object.assign(new Error('Method not allowed'), { status: 405 });
       const payload = await body(request);
+      if (['/api/upl/fact', '/api/upl/event', '/api/upl/encode'].includes(url.pathname)) {
+        const fields = url.pathname === '/api/upl/fact' ? ['profileId', 'campaignId', 'field', 'value']
+          : url.pathname === '/api/upl/event' ? ['profileId', 'campaignId', 'kind', 'topic'] : ['profileId', 'campaignId', 'dimension'];
+        checkedBody(payload, fields);
+        if (payload.campaignId !== (await campaign()).graph.id) throw new Error('Unknown campaign');
+        if (url.pathname === '/api/upl/fact') {
+          const profile = store.getProfile(payload.profileId);
+          return send(response, 200, store.updateFact({ profileId: payload.profileId, eventId: randomUUID(),
+            expectedRevision: profile.factRevision, campaignId: payload.campaignId, field: payload.field, value: payload.value }));
+        }
+        const ingredients = store.uplIngredients(payload.profileId, payload.campaignId);
+        if (url.pathname === '/api/upl/event') {
+          return send(response, 200, store.recordActivity({ profileId: payload.profileId, campaignId: payload.campaignId,
+            eventId: randomUUID(), kind: payload.kind, topic: payload.topic }));
+        }
+        if (!UPL_DIMENSIONS.includes(payload.dimension)) throw new Error('UPL dimension must be 128, 256, 512 or 1024');
+        const controller = new AbortController();
+        const cancel = () => { if (!response.writableEnded) controller.abort(); };
+        response.once('close', cancel);
+        try {
+          const bundle = await runUpl({ ingredients, dimension: payload.dimension }, { signal: controller.signal });
+          if (controller.signal.aborted || response.destroyed) return;
+          if (payload.campaignId !== (await campaign()).graph.id) throw Object.assign(new Error('Campaign changed during encoding'), { status: 409 });
+          const snapshot = store.saveSemanticSnapshot(payload.profileId, payload.campaignId, ingredients, bundle);
+          send(response, 200, { snapshot, bundle: snapshot.bundle });
+        } finally {
+          response.removeListener('close', cancel);
+        }
+        return;
+      }
+      if (url.pathname === '/api/text-preview') {
+        const input = validateTextRequest(payload);
+        const controller = new AbortController();
+        const cancel = () => { if (!response.writableEnded) controller.abort(); };
+        response.once('close', cancel);
+        try {
+          const result = await runText(input, { signal: controller.signal });
+          if (!response.destroyed) send(response, 200, result);
+        } finally {
+          response.removeListener('close', cancel);
+        }
+        return;
+      }
       if (url.pathname === '/api/graph') {
         checkedBody(payload, ['source']);
         const graph = parseSource(payload.source);
@@ -134,8 +219,7 @@ export async function createLab(options = {}) {
         await writeFile(temporary, payload.source);
         await rename(temporary, campaignPath);
         const hash = await graphHash(graph);
-        const loaded = await student();
-        return send(response, 200, { graph, source: payload.source, graphHash: hash, artifactCompatible: Boolean(loaded && loaded.artifact.graphHash === hash && loaded.artifact.campaignId === graph.id) });
+        return send(response, 200, { graph, source: payload.source, graphHash: hash, ...await artifactState(graph, hash) });
       }
       if (url.pathname === '/api/facts') return send(response, 200, store.updateFact(payload));
       if (url.pathname === '/api/consent') {
@@ -170,6 +254,7 @@ export async function createLab(options = {}) {
       }
       throw Object.assign(new Error('Not found'), { status: 404 });
     } catch (error) {
+      if (response.destroyed) return;
       const status = error.status ?? (error.code === 'CONFLICT' || error.code === 'STALE_SNAPSHOT' ? 409 : error.code === 'CONSENT_DENIED' ? 403 : 400);
       if (!response.headersSent) send(response, status, { error: error.message });
       else response.end();

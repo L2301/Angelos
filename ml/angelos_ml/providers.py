@@ -1,11 +1,15 @@
 """Local-only Diffusers adapters. Injected pipelines are explicitly test-only."""
 
 import hashlib
+import inspect
+import threading
 from importlib.metadata import version
 
 import torch
 
 from .models import default_cache_dir, model_metadata, model_spec
+from .text_contract import MAX_TEXT_UNITS, bounded_text, validate_text_parameters, validate_text_result
+from .text_runtime import load_text_pipeline
 
 
 MAX_SEED = 2 ** 53 - 1
@@ -33,6 +37,8 @@ def require_safe_loaders():
 
 def load_pipeline(model, device="cpu", dtype=None, cache_dir=None):
     specification = model_spec(model)
+    if specification.kind == "text":
+        return load_text_pipeline(model, device, dtype, cache_dir)
     require_safe_loaders()
     import diffusers
 
@@ -62,29 +68,76 @@ class PipelineRegistry:
         self.dtype = dtype or torch.float32
         self.cache_dir = cache_dir
         self._pipelines = dict(pipelines or {})
+        self._lock = threading.RLock()
         self.injected_models = frozenset(self._pipelines)
         for model in self._pipelines:
             model_spec(model)
 
     def get(self, model):
         model_spec(model)
-        if model not in self._pipelines:
-            self._pipelines[model] = load_pipeline(model, self.device, self.dtype, self.cache_dir)
-        return self._pipelines[model]
+        with self._lock:
+            if model not in self._pipelines:
+                self._pipelines[model] = load_pipeline(model, self.device, self.dtype, self.cache_dir)
+            return self._pipelines[model]
 
     def metadata(self, model):
         specification = model_spec(model)
         return {
             **model_metadata(model),
-            "backend": "injected-test-pipeline" if model in self.injected_models else "diffusers",
+            "backend": "injected-test-pipeline" if model in self.injected_models else "transformers" if specification.kind == "text" else "diffusers",
             "device": self.device, "dtype": str(self.dtype),
             "weightLoading": "safetensors" if specification.safetensors else "torch.load(weights_only=True) via modern Diffusers/Transformers",
             "localFilesOnly": True,
         }
 
     @torch.inference_mode()
-    def generate(self, model, prompt, parameters, seed):
+    def generate_text(self, model, prompt, parameters, seed):
+        if not isinstance(parameters, dict) or set(parameters) not in ({"system", "max_tokens", "temperature"}, {"model", "system", "max_tokens", "temperature"}):
+            raise ValueError("Text parameters require system, max_tokens and temperature")
+        if "model" in parameters and parameters["model"] != model:
+            raise ValueError("Text model and parameter binding disagree")
+        validate_text_parameters(model, parameters["system"], parameters["max_tokens"], parameters["temperature"])
+        bounded_text(prompt, MAX_TEXT_UNITS, "prompt")
+        if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2 ** 63:
+            raise ValueError("Derived generator seed must be a nonnegative signed 64-bit integer")
+        generator = torch.Generator(device="cpu").manual_seed(seed)
+        with self._lock:
+            result = self.get(model)(
+                prompt=prompt, system=parameters["system"], max_tokens=int(parameters["max_tokens"]),
+                temperature=parameters["temperature"], generator=generator,
+            )
+        return validate_text_result(result, parameters["max_tokens"])
+
+    def validate_raster_prompt(self, model, pipeline, prompt):
+        bounded_text(prompt, MAX_TEXT_UNITS, "Generated raster prompt")
+        tokenizers = [getattr(pipeline, name, None) for name in ("tokenizer", "tokenizer_2", "tokenizer_3")]
+        tokenizers = [tokenizer for tokenizer in tokenizers if tokenizer is not None]
+        if not tokenizers:
+            raise ValueError("Cannot verify generated prompt length: raster pipeline has no tokenizer")
+        sequence = inspect.signature(pipeline.__call__).parameters.get("max_sequence_length")
+        for tokenizer in tokenizers:
+            maximum = tokenizer.model_max_length
+            if sequence is not None and type(sequence.default) is int:
+                maximum = min(maximum, sequence.default)
+            if not isinstance(maximum, int) or not 1 <= maximum <= 1_000_000:
+                raise ValueError("Cannot verify generated prompt length: tokenizer has no bounded context")
+            rendered = prompt
+            if model == "flux2-klein-4b":
+                rendered = tokenizer.apply_chat_template(
+                    [{"role": "user", "content": prompt}], tokenize=False,
+                    add_generation_prompt=True, enable_thinking=False,
+                )
+            elif model == "tiny-sd" and hasattr(pipeline, "maybe_convert_prompt"):
+                rendered = pipeline.maybe_convert_prompt(prompt, tokenizer)
+            tokens = tokenizer(rendered, truncation=False, add_special_tokens=True)["input_ids"]
+            if len(tokens) > maximum:
+                raise ValueError(f"Generated prompt exceeds raster tokenizer limit {maximum}; truncation is forbidden")
+
+    @torch.inference_mode()
+    def generate(self, model, prompt, parameters, seed, strict_prompt=False):
         specification = model_spec(model)
+        if specification.kind not in ("image", "video"):
+            raise ValueError("Raster generation requires an image or video model")
         if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2 ** 63:
             raise ValueError("Derived generator seed must be a nonnegative signed 64-bit integer")
         generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -97,7 +150,10 @@ class PipelineRegistry:
         }
         if specification.kind == "video":
             arguments["num_frames"] = int(parameters["num_frames"])
-        result = self.get(model)(**arguments)
+        pipeline = self.get(model)
+        if strict_prompt:
+            self.validate_raster_prompt(model, pipeline, prompt)
+        result = pipeline(**arguments)
         if specification.kind == "image":
             rejected = getattr(result, "nsfw_content_detected", None)
             if rejected is not None and any(rejected):

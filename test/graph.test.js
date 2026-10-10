@@ -83,3 +83,38 @@ test('generative contracts reject arbitrary models, bad prompts, parameters, and
   const video = readFileSync(new URL('../examples/aurora-ltx.ang', import.meta.url), 'utf8');
   for (const bad of [video.replace('num_frames: 9', 'num_frames: 8'), video.replace('index: 4', 'index: 9'), video.replace('video: clip', 'video: scene')]) assert.throws(() => parseSource(bad));
 });
+
+test('text nodes are distinct and composable while output remains image-only', async () => {
+  const text = readFileSync(new URL('../examples/aurora-text.ang', import.meta.url), 'utf8');
+  const graph = parseSource(text);
+  assert.equal(await graphHash(graph), await graphHash(parseSource(printSource(graph))));
+  assert.throws(() => createReference(graph), /Python RasterTeacher/);
+  const chained = text.replace('picture =', 'rewrite = generate_text(prompt: copy, model: "qwen3-8b", system: "Shorter {literal} copy 🌌", max_tokens: 8, temperature: 0)\npicture =').replace('generate_image(prompt: copy', 'generate_image(prompt: rewrite');
+  assert.doesNotThrow(() => parseSource(chained));
+  const video = text.replace('picture = generate_image(prompt: copy, model: "tiny-sd", steps: 12, guidance: 7.5, width: 256, height: 256)', 'clip = generate_video(prompt: copy, model: "ltx-video", steps: 12, guidance: 7.5, width: 256, height: 256, num_frames: 9)\npicture = frame(video: clip, index: 0)');
+  assert.doesNotThrow(() => parseSource(video));
+  for (const invalid of [
+    text.replace('"qwen3-0.6b"', '"tiny-sd"'),
+    text.replace('prompt: scene', 'prompt: openness'),
+    text.replace('output picture', 'output copy'),
+    text.replace('max_tokens: 48', 'max_tokens: 0'),
+    text.replace('max_tokens: 48', 'max_tokens: 513'),
+    text.replace('max_tokens: 48', 'max_tokens: 1.5'),
+    text.replace('temperature: 0.7', 'temperature: 2.1'),
+    text.replace('temperature: 0.7', 'temperature: -0.1'),
+    text.replace(/system: "[^"]*"/, 'system: " "'),
+    text.replace(/system: "[^"]*"/, `system: ${JSON.stringify('🌌'.repeat(1025))}`),
+    text.replace(/system: "[^"]*"/, `system: ${JSON.stringify('\ud800')}`),
+  ]) assert.throws(() => parseSource(invalid));
+});
+
+test('legacy deterministic prompt semantics retain pre-text graph hashes', async () => {
+  const originals = {
+    aurora: '960931297bd07971f08aaf99098a4ea157dae17be7ada26367698b67502c07ec',
+    'aurora-generative': 'f0a99add82b7caab74c1ea45c5af801ed4cecfbae208c2ec7972e06b644987bd',
+    'aurora-ltx': '24db0f58e99dd445b5779e5cbf13f8a517f6e574c70486c100108d3f26d46f0e',
+  };
+  for (const [name, expected] of Object.entries(originals)) {
+    assert.equal(await graphHash(parseSource(readFileSync(new URL(`../examples/${name}.ang`, import.meta.url), 'utf8'))), expected);
+  }
+});

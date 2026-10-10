@@ -1,0 +1,23 @@
+{
+  "schema": "angelos.hd.v1",
+  "campaign": "Aurora",
+  "fictional": true,
+  "synthetic_adults": true,
+  "model": "sana-sprint-0.6b",
+  "native_size": [1920, 1088],
+  "output_size": [1920, 1080],
+  "steps": 2,
+  "variants": [
+    {
+      "profile": "quiet",
+      "prompt": "Editorial product photograph for Aurora, a fictional outdoor lifestyle brand in a synthetic adult UPL demo. A matte ivory insulated bottle on pale stone beside a still alpine lake at dawn, gentle mist, soft sage and lavender tones, quiet balanced composition, ample negative space, natural fine texture, no people, no lettering, no logos.",
+      "seed": 1701
+    },
+    {
+      "profile": "bold",
+      "prompt": "Editorial product photograph for Aurora, a fictional outdoor lifestyle brand in a synthetic adult UPL demo. A vivid coral insulated bottle on dark volcanic stone under dramatic mountain light, energetic diagonal composition, electric teal and warm orange accents, crisp reflections, natural fine texture, no people, no lettering, no logos.",
+      "seed": 1702
+    }
+  ],
+  "output_dir": "artifacts/hd/aurora-baseline"
+}

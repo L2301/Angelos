@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { UPL_FIELDS, UPL_FACT_SCHEMA, UPL_EVENT_SCHEMA, UPL_EVENT_KINDS, ADULT_AGE_BANDS,
+  validateUplFact, validateSemanticEncoder, validateSemanticBundle, uplText } from './upl.js';
 
 export const ENCODER = Object.freeze({ id: 'structured-demo-v1', dimension: 4 });
 export const FACT_SCHEMA_VERSION = 'angelos.facts.v1';
@@ -7,7 +9,8 @@ export const CONSENT_SCHEMA_VERSION = 'angelos.consent.v1';
 
 const AGE_BANDS = Object.freeze(['18-24', '25-34', '35-44', '45-54', '55-64', '65+']);
 const REGIONS = Object.freeze(['NA', 'EU', 'APAC', 'OTHER']);
-const FIELDS = Object.freeze(['ageBand', 'region', 'openness', 'energy']);
+const LEGACY_FIELDS = Object.freeze(['ageBand', 'region', 'openness', 'energy']);
+const FIELDS = UPL_FIELDS;
 const DAY = 86_400_000;
 const MAX_ROWS = 10_000;
 
@@ -54,11 +57,7 @@ function boolean(value) {
 }
 
 function fact(field, value) {
-  if (!FIELDS.includes(field)) fail('INVALID_INPUT', 'Unknown fact field');
-  if (value === null) return;
-  if (field === 'ageBand' && !AGE_BANDS.includes(value)) fail('INVALID_INPUT', 'Invalid adult age band');
-  if (field === 'region' && !REGIONS.includes(value)) fail('INVALID_INPUT', 'Invalid coarse region');
-  if (field === 'openness' || field === 'energy') unit(value);
+  validateUplFact(field, value);
 }
 
 function facts(value) {
@@ -103,15 +102,18 @@ function artifact(value) {
       fail('INVALID_INPUT', `Invalid ${key}`);
     }
   }
-  object(value.encoder, ['id', 'dimension']);
-  if (value.encoder.id !== ENCODER.id || value.encoder.dimension !== ENCODER.dimension) {
-    fail('INCOMPATIBLE_ARTIFACT', 'Unsupported encoder contract');
+  if (value.encoder?.id === ENCODER.id) {
+    object(value.encoder, ['id', 'dimension']);
+    if (value.encoder.dimension !== ENCODER.dimension) fail('INCOMPATIBLE_ARTIFACT', 'Unsupported encoder contract');
+  } else {
+    try { validateSemanticEncoder(value.encoder); }
+    catch { fail('INCOMPATIBLE_ARTIFACT', 'Unsupported encoder contract'); }
   }
 }
 
 export function encodeFacts(value) {
   facts(value);
-  const missing = FIELDS.filter(field => !Object.hasOwn(value, field) || value[field] === null);
+  const missing = LEGACY_FIELDS.filter(field => !Object.hasOwn(value, field) || value[field] === null);
   if (missing.length) fail('MISSING_FACTS', `Missing encoder facts: ${missing.join(', ')}`);
   return [AGE_BANDS.indexOf(value.ageBand) / 5, REGIONS.indexOf(value.region) / 3,
     value.openness, value.energy];
@@ -135,7 +137,7 @@ export class Store {
     this.#database = new DatabaseSync(path, { enableForeignKeyConstraints: true, allowExtension: false });
     try {
       const version = this.#database.prepare('PRAGMA user_version').get().user_version;
-      if (version !== 0 && version !== 1) fail('INCOMPATIBLE_STORE', 'Unsupported database schema');
+      if (![0, 1, 2].includes(version)) fail('INCOMPATIBLE_STORE', 'Unsupported database schema');
       this.#database.exec(`
         PRAGMA foreign_keys = ON;
         PRAGMA secure_delete = ON;
@@ -199,7 +201,14 @@ export class Store {
           PRIMARY KEY(profile_id, kind, event_id)
         );
         CREATE TABLE IF NOT EXISTS deleted_profiles (id TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL);
-        PRAGMA user_version = 1;
+        CREATE TABLE IF NOT EXISTS upl_events (
+          id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          campaign_id TEXT NOT NULL, revision INTEGER NOT NULL, kind TEXT NOT NULL,
+          topic TEXT NOT NULL, occurred_at INTEGER NOT NULL, received_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL, source TEXT NOT NULL, UNIQUE(profile_id, revision)
+        );
+        CREATE INDEX IF NOT EXISTS upl_events_profile ON upl_events(profile_id, campaign_id, occurred_at);
+        PRAGMA user_version = 2;
         COMMIT;
       `);
     } catch (error) {
@@ -235,7 +244,8 @@ export class Store {
       }
       fail('NOT_FOUND', 'Profile not found');
     }
-    return { id: row.id, name: row.name, synthetic: true, facts: JSON.parse(row.facts),
+    const eventRevision = this.#database.prepare('SELECT COALESCE(MAX(revision), 0) AS revision FROM upl_events WHERE profile_id = ?').get(profileId).revision;
+    return { id: row.id, name: row.name, synthetic: true, facts: JSON.parse(row.facts), eventRevision,
       factRevision: row.fact_revision, consent: JSON.parse(row.consent),
       consentVersion: row.consent_version, createdAt: row.created_at };
   }
@@ -245,6 +255,10 @@ export class Store {
         || scopes.some(scope => !profile.consent[scope])) {
       fail('CONSENT_DENIED', 'Campaign or scope is not permitted');
     }
+  }
+
+  #campaignEventRevision(profileId, campaignId) {
+    return this.#database.prepare('SELECT COUNT(*) AS revision FROM upl_events WHERE profile_id = ? AND campaign_id = ?').get(profileId, campaignId).revision;
   }
 
   #event(profileId, kind, eventId, input, action) {
@@ -278,7 +292,9 @@ export class Store {
     }
     const result = JSON.parse(row.payload);
     if (fresh && (result.factRevision !== profile.factRevision
-        || result.consentVersion !== profile.consentVersion)) {
+        || result.consentVersion !== profile.consentVersion
+        || (result.bundle && (result.eventRevision !== this.#campaignEventRevision(profile.id, campaignId)
+          || result.bundle.recentIntent.some(event => event.expiresAt <= this.#now()))))) {
       fail('STALE_SNAPSHOT', 'Create a snapshot for the current facts and consent');
     }
     return result;
@@ -331,14 +347,16 @@ export class Store {
   }
 
   updateFact(input) {
-    object(input, ['profileId', 'eventId', 'expectedRevision', 'field', 'value', 'occurredAt'],
+    object(input, ['profileId', 'eventId', 'expectedRevision', 'field', 'value', 'occurredAt', 'campaignId'],
       ['profileId', 'eventId', 'expectedRevision', 'field', 'value']);
     identifier(input.profileId);
     identifier(input.eventId);
     integer(input.expectedRevision);
     fact(input.field, input.value);
+    if (Object.hasOwn(input, 'campaignId')) identifier(input.campaignId);
     if (Object.hasOwn(input, 'occurredAt')) integer(input.occurredAt);
     return this.#event(input.profileId, 'fact', input.eventId, input, (profile, now) => {
+      if (input.campaignId) this.#permit(profile, input.campaignId, ['personalization']);
       if (profile.factRevision !== input.expectedRevision) fail('CONFLICT', 'Stale fact revision');
       const occurredAt = this.#occurred(input, now);
       const previous = this.#database.prepare(
@@ -368,6 +386,13 @@ export class Store {
       if (profile.consentVersion !== input.expectedVersion) fail('CONFLICT', 'Stale consent version');
       const version = profile.consentVersion + 1;
       const removed = profile.consent.campaignIds.filter(campaignId => !updated.campaignIds.includes(campaignId));
+      if (!updated.personalization || !updated.telemetry) {
+        this.#database.prepare('UPDATE upl_events SET expires_at = MIN(expires_at, ?) WHERE profile_id = ?').run(now, profile.id);
+      } else {
+        for (const campaignId of removed) {
+          this.#database.prepare('UPDATE upl_events SET expires_at = MIN(expires_at, ?) WHERE profile_id = ? AND campaign_id = ?').run(now, profile.id, campaignId);
+        }
+      }
       for (const table of ['impressions', 'reviews']) {
         if (!updated.training || !updated.telemetry) {
           this.#database.prepare(`UPDATE ${table} SET training_eligible = 0 WHERE profile_id = ?`).run(profile.id);
@@ -393,7 +418,8 @@ export class Store {
     return this.#transaction(() => {
       const profile = this.#profile(profileId);
       this.#permit(profile, campaignId, ['personalization']);
-      const result = { id: randomUUID(), profileId, campaignId, facts: profile.facts,
+      const result = { id: randomUUID(), profileId, campaignId,
+        facts: Object.fromEntries(LEGACY_FIELDS.filter(field => Object.hasOwn(profile.facts, field)).map(field => [field, profile.facts[field]])),
         factRevision: profile.factRevision, factSchemaVersion: FACT_SCHEMA_VERSION,
         encoder: ENCODER, upl: encodeFacts(profile.facts), consentVersion: profile.consentVersion,
         consentSchemaVersion: CONSENT_SCHEMA_VERSION, createdAt: this.#now() };
@@ -401,6 +427,79 @@ export class Store {
       result.hash = createHash('sha256').update(canonical(result)).digest('hex');
       this.#database.prepare('INSERT INTO snapshots VALUES (?, ?, ?, ?)')
         .run(result.id, profileId, campaignId, canonical(result));
+      return freeze(result);
+    });
+  }
+
+  #ingredients(profile, campaignId, now) {
+    this.#permit(profile, campaignId, ['personalization']);
+    if (!ADULT_AGE_BANDS.includes(profile.facts.ageBand)) fail('MISSING_FACTS', 'An adult age band is required');
+    const provenance = this.#database.prepare(`SELECT field, occurred_at, received_at FROM fact_events
+      WHERE profile_id = ? AND revision IN
+        (SELECT MAX(revision) FROM fact_events WHERE profile_id = ? GROUP BY field) ORDER BY field`)
+      .all(profile.id, profile.id).map(row => ({ field: row.field, source: 'synthetic-declared', occurredAt: row.occurred_at, receivedAt: row.received_at }));
+    const events = profile.consent.telemetry ? this.#database.prepare(`SELECT * FROM upl_events
+      WHERE profile_id = ? AND campaign_id = ? AND occurred_at <= ? AND received_at <= ? AND expires_at > ?
+      ORDER BY occurred_at DESC, revision DESC LIMIT 64`).all(profile.id, campaignId, now, now, now)
+      .reverse().map(row => ({ id: row.id, kind: row.kind, topic: row.topic, occurredAt: row.occurred_at,
+        receivedAt: row.received_at, expiresAt: row.expires_at, source: row.source, campaignId: row.campaign_id })) : [];
+    return { format: 'angelos.upl-ingredients.v2', synthetic: true, adult: true,
+      factsSchema: UPL_FACT_SCHEMA, facts: profile.facts, provenance, eventsSchema: UPL_EVENT_SCHEMA,
+      events, factRevision: profile.factRevision, eventRevision: this.#campaignEventRevision(profile.id, campaignId),
+      consentVersion: profile.consentVersion, campaignId, asOf: now };
+  }
+
+  uplIngredients(profileId, campaignId) {
+    identifier(profileId);
+    identifier(campaignId);
+    return this.#transaction(() => freeze(this.#ingredients(this.#profile(profileId), campaignId, this.#now())));
+  }
+
+  #appendActivity(profile, input, now, source) {
+    const revision = profile.eventRevision + 1;
+    const occurredAt = this.#occurred(input, now);
+    const expiresAt = input.expiresAt ?? occurredAt + 7 * DAY;
+    integer(expiresAt, now + 1, occurredAt + 30 * DAY);
+    if (this.#database.prepare('SELECT COUNT(*) AS count FROM upl_events WHERE profile_id = ?').get(profile.id).count >= MAX_ROWS) {
+      fail('LIMIT_EXCEEDED', 'Synthetic event limit exceeded');
+    }
+    this.#database.prepare('INSERT INTO upl_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(input.eventId, profile.id, input.campaignId, revision, input.kind, input.topic, occurredAt, now, expiresAt, source);
+    return { id: input.eventId, campaignId: input.campaignId, eventRevision: revision, kind: input.kind,
+      topic: input.topic, occurredAt, receivedAt: now, expiresAt, source, schemaVersion: UPL_EVENT_SCHEMA };
+  }
+
+  recordActivity(input) {
+    object(input, ['profileId', 'eventId', 'campaignId', 'kind', 'topic', 'occurredAt', 'expiresAt'],
+      ['profileId', 'eventId', 'campaignId', 'kind', 'topic']);
+    for (const field of ['profileId', 'eventId', 'campaignId']) identifier(input[field]);
+    if (!UPL_EVENT_KINDS.includes(input.kind)) fail('INVALID_INPUT', 'Unsupported activity kind');
+    uplText(input.topic);
+    return this.#event(input.profileId, 'activity', input.eventId, input, (profile, now) => {
+      this.#permit(profile, input.campaignId, ['personalization', 'telemetry']);
+      return this.#appendActivity(profile, input, now, 'synthetic-operator');
+    });
+  }
+
+  saveSemanticSnapshot(profileId, campaignId, ingredients, bundle) {
+    identifier(profileId);
+    identifier(campaignId);
+    validateSemanticBundle(bundle, ingredients);
+    return this.#transaction(() => {
+      const profile = this.#profile(profileId);
+      const now = this.#now();
+      const current = this.#ingredients(profile, campaignId, ingredients.asOf);
+      if (ingredients.asOf > now || canonical(current) !== canonical(ingredients)
+          || bundle.recentIntent.some(event => event.expiresAt <= now)) {
+        fail('STALE_SNAPSHOT', 'User state changed during encoding; encode the current ingredients again');
+      }
+      const result = { format: 'angelos.snapshot.v2', id: randomUUID(), profileId, campaignId,
+        facts: bundle.facts, factRevision: profile.factRevision, eventRevision: ingredients.eventRevision,
+        factSchemaVersion: UPL_FACT_SCHEMA, encoder: bundle.encoder, upl: bundle.upl, vector: bundle.upl,
+        consentVersion: profile.consentVersion, consentSchemaVersion: CONSENT_SCHEMA_VERSION,
+        createdAt: now, bundle };
+      result.hash = createHash('sha256').update(canonical(result)).digest('hex');
+      this.#database.prepare('INSERT INTO snapshots VALUES (?, ?, ?, ?)').run(result.id, profileId, campaignId, canonical(result));
       return freeze(result);
     });
   }
@@ -426,6 +525,7 @@ export class Store {
     return this.#event(input.profileId, 'impression', input.eventId, input, (profile, now) => {
       this.#permit(profile, input.campaignId, ['personalization', 'telemetry']);
       const snapshot = this.#snapshot(input.snapshotId, profile, input.campaignId, true);
+      if (canonical(snapshot.encoder) !== canonical(input.artifact.encoder)) fail('INCOMPATIBLE_ARTIFACT', 'Snapshot and artifact encoder contracts differ');
       this.#artifact(input.artifact, input.campaignId);
       const occurredAt = this.#occurred(input, now);
       const clickDeadline = occurredAt + this.#clickWindowMs;
@@ -467,6 +567,13 @@ export class Store {
         encoderVersion: pinned.encoderVersion, artifact: pinned.artifact, context: pinned.context,
         exposureConsentVersion: pinned.consentVersion, collectionConsentVersion: profile.consentVersion,
         occurredAt, receivedAt: now };
+      const intentCapacity = this.#database.prepare('SELECT COUNT(*) AS count FROM upl_events WHERE profile_id = ?').get(profile.id).count < MAX_ROWS;
+      result.intentUpdate = !profile.consent.personalization ? 'not-permitted'
+        : occurredAt <= now - 7 * DAY ? 'outside-recent-window' : !intentCapacity ? 'capacity-limit' : 'recorded';
+      if (result.intentUpdate === 'recorded') {
+        this.#appendActivity(profile, { eventId: randomUUID(), campaignId: input.campaignId,
+          kind: 'click', topic: 'Ad engagement', occurredAt, expiresAt: occurredAt + 7 * DAY }, now, 'exposure-click');
+      }
       this.#database.prepare('INSERT INTO clicks VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(result.id, profile.id, input.campaignId, impression.id, occurredAt, now, canonical(result));
       return result;
@@ -505,8 +612,41 @@ export class Store {
           campaignId: row.campaign_id, snapshotId: pinned.snapshotId, upl: pinned.snapshot.upl,
           encoder: pinned.snapshot.encoder, artifact: pinned.artifact, context: pinned.context,
           consentVersion: pinned.consentVersion, labelPolicy: pinned.labelPolicy,
-          occurredAt: row.occurred_at, maturesAt: row.matures_at, label: Number(row.click_count > 0) };
+          occurredAt: row.occurred_at, maturesAt: row.matures_at, label: Number(row.click_count > 0),
+          ...(pinned.snapshot.bundle ? { uplBundle: pinned.snapshot.bundle } : {}) };
       }));
+  }
+
+  trainingReviews(input) {
+    const asOf = this.#query(input);
+    return this.#transaction(() => {
+      const rows = this.#database.prepare(`SELECT reviews.payload, reviews.profile_id, snapshots.payload AS snapshot,
+        profiles.consent FROM reviews JOIN profiles ON profiles.id = reviews.profile_id
+        JOIN snapshots ON snapshots.id = reviews.snapshot_id
+        WHERE reviews.campaign_id = ? AND reviews.received_at <= ? AND reviews.training_eligible = 1
+        ORDER BY reviews.received_at, reviews.id LIMIT ?`).all(input.campaignId, asOf, MAX_ROWS + 1);
+      if (rows.length > MAX_ROWS) fail('LIMIT_EXCEEDED', 'Demo review limit exceeded');
+      return rows.filter(row => {
+        const current = JSON.parse(row.consent);
+        return current.telemetry && current.training && current.campaignIds.includes(input.campaignId);
+      }).map(row => {
+        const review = JSON.parse(row.payload);
+        const snapshot = JSON.parse(row.snapshot);
+        return { ...review, upl: snapshot.upl, encoder: snapshot.encoder,
+          ...(snapshot.bundle ? { uplBundle: snapshot.bundle } : {}) };
+      });
+    });
+  }
+
+  learningFeedback(input) {
+    const asOf = this.#query(input);
+    return {
+      format: 'angelos.feedback.v1', campaignId: input.campaignId, asOf,
+      outcome: 'click', population: 'local-synthetic-adults',
+      clicks: this.maturedRows({ campaignId: input.campaignId, asOf }),
+      reviews: this.trainingReviews({ campaignId: input.campaignId, asOf }),
+      limitation: 'A consent-filtered point-in-time export, not perpetual permission or randomized conversion evidence. Re-export before training; exported files cannot observe later revocation.',
+    };
   }
 
   metrics(input) {
@@ -547,6 +687,7 @@ export class Store {
     return this.#event(input.profileId, 'review', input.eventId, input, (profile, now) => {
       this.#permit(profile, input.campaignId, ['telemetry']);
       const snapshot = this.#snapshot(input.snapshotId, profile, input.campaignId, false);
+      if (canonical(snapshot.encoder) !== canonical(input.artifact.encoder)) fail('INCOMPATIBLE_ARTIFACT', 'Snapshot and artifact encoder contracts differ');
       this.#artifact(input.artifact, input.campaignId);
       const result = { id: input.eventId, profileId: profile.id, campaignId: input.campaignId,
         snapshotId: snapshot.id, artifact: input.artifact, creativeId: input.creativeId,

@@ -1,0 +1,7 @@
+campaign aurora
+person = upl()
+openness = feature(input: person, index: 2)
+scene = prompt(condition: openness, low: "Describe a serene aurora above a lake.", high: "Describe a vivid aurora above mountains.", threshold: 0.5)
+copy = generate_text(prompt: scene, model: "qwen3-0.6b", system: "Return only one short visual scene description, at most 30 words. No headings or explanation.", max_tokens: 48, temperature: 0.7)
+picture = generate_image(prompt: copy, model: "tiny-sd", steps: 12, guidance: 7.5, width: 256, height: 256)
+output picture

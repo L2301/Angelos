@@ -13,6 +13,7 @@ import torch.nn.functional as functional
 from .graph import graph_hash, load_graph, verify_graph_hash
 from .providers import PipelineRegistry, validate_seed
 from .teacher import RasterTeacher, pixel_coordinates
+from .diffusion import LEGACY_ENCODER, conditioning_encoder
 
 
 DEFAULT_TRAIN_COUNT = 16
@@ -43,6 +44,8 @@ def split_profiles(seed, train_count, heldout_count):
 
 def build_dataset(graph, *, train_count=DEFAULT_TRAIN_COUNT, heldout_count=DEFAULT_HELDOUT_COUNT, seed=7, teacher_seed=11, seeds_per_profile=DEFAULT_SEEDS_PER_PROFILE, registry=None, width=256, height=256, preview_dir=None):
     """Default to 40 images: 16 train and 4 held-out profiles, two seeds each."""
+    if conditioning_encoder(graph.get("encoder")) != LEGACY_ENCODER:
+        raise ValueError("Teacher profile synthesis is legacy-only; supply a frozen UPLv2 dataset with encoded vectors and input bundles")
     identity = graph_hash(graph)
     validate_seed(teacher_seed)
     pixel_coordinates(width, height)
@@ -84,9 +87,11 @@ def build_dataset(graph, *, train_count=DEFAULT_TRAIN_COUNT, heldout_count=DEFAU
         "split": np.asarray(labels, dtype=np.int64),
         "teacher_seed": np.asarray(seeds, dtype=np.int64),
     }
-    model_ids = sorted({node["params"]["model"] for node in graph["nodes"] if node["op"] in {"generate_image", "generate_video"}})
+    model_ids = sorted({node["params"]["model"] for node in graph["nodes"] if node["op"] in {"generate_text", "generate_image", "generate_video"}})
     models = [teacher.registry.metadata(model) for model in model_ids]
     source = "injected-test-pipeline" if any(model["backend"] == "injected-test-pipeline" for model in models) else "diffusers-local-open-weights" if models else "deterministic-raster"
+    if source == "diffusers-local-open-weights" and any(model["kind"] == "text" for model in models):
+        source = "transformers-diffusers-local-open-weights"
     packages = {}
     for package in ("torch", "diffusers", "transformers", "numpy"):
         try:

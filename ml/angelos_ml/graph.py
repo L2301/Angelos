@@ -8,6 +8,8 @@ import math
 import re
 from pathlib import Path
 
+from .upl import DIMENSIONS, encoder_metadata
+
 
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 FORBIDDEN_IDENTIFIERS = {"__proto__", "prototype", "constructor", "campaign", "output"}
@@ -16,8 +18,9 @@ OPERATIONS = {
     "feature": ({"input": "upl"}, {"index"}, "scalar"),
     "constant": ({}, {"value"}, "scalar"),
     "prompt": ({"condition": "scalar"}, {"low", "high", "threshold"}, "prompt"),
-    "generate_image": ({"prompt": "prompt"}, {"model", "steps", "guidance", "width", "height"}, "image"),
-    "generate_video": ({"prompt": "prompt"}, {"model", "steps", "guidance", "width", "height", "num_frames"}, "video"),
+    "generate_text": ({"prompt": ("prompt", "text")}, {"model", "system", "max_tokens", "temperature"}, "text"),
+    "generate_image": ({"prompt": ("prompt", "text")}, {"model", "steps", "guidance", "width", "height"}, "image"),
+    "generate_video": ({"prompt": ("prompt", "text")}, {"model", "steps", "guidance", "width", "height", "num_frames"}, "video"),
     "frame": ({"video": "video"}, {"index"}, "image"),
     "gradient": ({"condition": "scalar"}, {"low", "high", "angle"}, "image"),
     "disk": (
@@ -50,11 +53,16 @@ def vector(value, dimension, context):
         finite_number(coordinate, 0, 1, context)
 
 
-def validate_parameters(node):
+def validate_parameters(node, dimension=4):
     operation = node["op"]
     parameters = node["params"]
     context = node["id"]
     exact_fields(parameters, OPERATIONS[operation][1], f"{context}.params")
+    if operation == "generate_text":
+        from .text_contract import validate_text_parameters
+
+        validate_text_parameters(**parameters)
+        return
     if operation == "prompt":
         for name in ("low", "high"):
             text = parameters[name]
@@ -86,7 +94,7 @@ def validate_parameters(node):
             raise ValueError("Frame index must be an integer")
     if operation == "feature":
         index = parameters["index"]
-        finite_number(index, 0, 3, f"{context}.index")
+        finite_number(index, 0, dimension - 1, f"{context}.index")
         if int(index) != index:
             raise ValueError(f"{context}.index must be an integer")
     for name in ("low", "high", "color", "background"):
@@ -117,16 +125,23 @@ def validate_parameters(node):
 
 def validate_graph(graph):
     exact_fields(graph, {"version", "id", "encoder", "nodes", "output"}, "graph")
-    if graph["version"] != "angelos.graph.v1":
+    if graph["version"] not in ("angelos.graph.v1", "angelos.graph.v2"):
         raise ValueError("Unsupported graph version")
     if not valid_identifier(graph["id"]):
         raise ValueError("Invalid campaign ID")
-    exact_fields(graph["encoder"], {"id", "dimension"}, "encoder")
-    if graph["encoder"]["id"] != "structured-demo-v1":
-        raise ValueError("Unsupported UPL encoder")
-    dimension = graph["encoder"]["dimension"]
-    if isinstance(dimension, bool) or dimension != 4:
-        raise ValueError("UPL dimension must be four")
+    if graph["version"] == "angelos.graph.v1":
+        exact_fields(graph["encoder"], {"id", "dimension"}, "encoder")
+        if graph["encoder"]["id"] != "structured-demo-v1":
+            raise ValueError("Unsupported UPL encoder")
+        dimension = graph["encoder"]["dimension"]
+        if isinstance(dimension, bool) or dimension != 4:
+            raise ValueError("UPL dimension must be four")
+    else:
+        encoder = graph["encoder"]
+        if (not isinstance(encoder, dict) or type(encoder.get("dimension")) is not int
+                or encoder["dimension"] not in DIMENSIONS or encoder != encoder_metadata(encoder["dimension"])):
+            raise ValueError("Unsupported pinned semantic encoder contract")
+        dimension = encoder["dimension"]
     nodes = graph["nodes"]
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= 64:
         raise ValueError("Graph requires between one and 64 nodes")
@@ -142,7 +157,7 @@ def validate_graph(graph):
         if not isinstance(operation, str) or operation not in OPERATIONS:
             raise ValueError(f"Unsupported operation: {operation}")
         exact_fields(node["inputs"], OPERATIONS[operation][0], f"{identifier}.inputs")
-        validate_parameters(node)
+        validate_parameters(node, dimension)
         lookup[identifier] = node
     if sum(node["op"] == "upl" for node in nodes) != 1:
         raise ValueError("Exactly one UPL source is required")
@@ -163,7 +178,7 @@ def validate_graph(graph):
                 raise ValueError(f"Unknown source on {identifier}.{port}")
             expected = OPERATIONS[node["op"]][0][port]
             actual = OPERATIONS[lookup[source]["op"]][2]
-            if actual != expected:
+            if actual not in (expected if isinstance(expected, tuple) else (expected,)):
                 raise ValueError(f"Type mismatch on {identifier}.{port}: {actual} != {expected}")
             if node["op"] == "frame" and node["params"]["index"] >= lookup[source]["params"]["num_frames"]:
                 raise ValueError("Frame index exceeds video frame count")

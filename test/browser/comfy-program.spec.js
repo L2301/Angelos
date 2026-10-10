@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { compileComfyProgram } from '../../src/core/comfy-program.js';
+
+test('Comfy converter stays local, round-trips, invalidates stale results and explains unsupported graphs', async ({ page }) => {
+  const errors = [];
+  const writes = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => { if (request.method() === 'POST') writes.push(request.url()); });
+  await page.goto('/lab');
+  await expect(page.locator('#graph-count')).toContainText('typed nodes');
+  const before = await (await page.request.get('/api/state')).json();
+  await page.locator('#comfy-converter summary').click();
+  const beforeWrites = [...writes];
+  await page.locator('#comfy-example').click();
+  await expect(page.locator('#comfy-status')).toContainText('placeholder');
+  await page.locator('#comfy-convert').click();
+  await expect(page.locator('#comfy-status')).toContainText('7 nodes converted and type-checked');
+  const source = await page.locator('#comfy-source').inputValue();
+  expect(compileComfyProgram(source)['5'].inputs.seed).toBe(2026);
+  const downloadEvent = page.waitForEvent('download');
+  await page.locator('#comfy-download').click();
+  const download = await downloadEvent;
+  expect(download.suggestedFilename()).toBe('campaign.comfy.ang');
+  expect(await readFile(await download.path(), 'utf8')).toBe(source);
+  const jsonEvent = page.waitForEvent('download');
+  await page.locator('#comfy-roundtrip').click();
+  const jsonDownload = await jsonEvent;
+  expect(JSON.parse(await readFile(await jsonDownload.path(), 'utf8'))).toEqual(JSON.parse(await page.locator('#comfy-json').inputValue()));
+  await page.locator('#comfy-json').fill('{"1":{"class_type":"NotSupported","inputs":{}}}');
+  await expect(page.locator('#comfy-result')).toBeHidden();
+  await expect(page.locator('#comfy-source')).toHaveValue('');
+  await page.locator('#comfy-convert').click();
+  await expect(page.locator('#comfy-status')).toContainText('Node 1: unsupported class NotSupported');
+  await expect(page.locator('#comfy-result')).toBeHidden();
+  await page.locator('#comfy-file').setInputFiles('examples/aurora-comfy-api.json');
+  await expect(page.locator('#comfy-status')).toContainText('File read locally');
+  await page.locator('#comfy-convert').click();
+  await expect(page.locator('#comfy-result')).toBeVisible();
+  for (const width of [320, 390, 760, 1024, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await page.locator('#comfy-json').fill('{"nodes":[]}');
+  await page.locator('#comfy-convert').click();
+  await expect(page.locator('#comfy-status')).toContainText('API-format JSON, not the canvas/layout JSON');
+  expect((await (await page.request.get('/api/state')).json()).source).toBe(before.source);
+  expect(writes).toEqual(beforeWrites);
+  expect(errors).toEqual([]);
+});

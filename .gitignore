@@ -10,4 +10,5 @@ data/
 artifacts/
 test-results/
 playwright-report/
+dist/
 *.sqlite*

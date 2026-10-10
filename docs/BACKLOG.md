@@ -1,5 +1,11 @@
 # Evidence-driven next stages
 
+2026-10-08 update: [ComfyUI integration](COMFYUI.md),
+[bounded reward/candidate experiments](RL.md) and a
+[native HD foundation baseline](HD-EXECUTION.md) now exist. This agenda retains
+quality gates that implementation alone does not satisfy. No paid jobs or
+unattended training are authorized.
+
 Update: open-weight teacher adapters, complete-graph datasets and a WebGPU diffusion
 student are now implemented. This list remains a research agenda, not an assertion
 that those components have achieved useful high-resolution ad quality. See the

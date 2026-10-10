@@ -1,0 +1,44 @@
+{
+  "schema": "angelos.hd-evidence.v1",
+  "model": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
+  "revision": "aa76e7f4f4928f378716b6716a2130fba3caf5b1",
+  "prompt": "Premium outdoor campaign photograph, a single moss-green hiking backpack resting on a weathered granite ledge in the foreground on the right, a serene alpine lake and jagged mountains in the distance at dawn, soft amber sunlight and deep forest-green shadows, spacious composition with natural dark negative space on the left for separately typeset headline, crisp fabric texture, realistic editorial product photography, subtle film grain, no writing, no logos, no watermark, wide landscape composition.",
+  "device": "mps",
+  "transformerDtype": "bfloat16",
+  "vaeDtype": "float32",
+  "seed": 2026,
+  "steps": 2,
+  "nativeSize": [
+    1920,
+    1088
+  ],
+  "outputSize": [
+    1920,
+    1080
+  ],
+  "crop": [
+    0,
+    4,
+    1920,
+    1084
+  ],
+  "resized": false,
+  "resolutionBinning": false,
+  "secondsIncludingLoad": 135.11273125000298,
+  "campaignTrained": false,
+  "generatedAt": "2026-10-08",
+  "imageSha256": "e582b57da60d37c296842c98dff5976fa6b51233c27463e6931722ddd5a96e39",
+  "nativeImageSha256": "1186facf7aa4db622599b500c5700625f16feb1f445a9c6441a38e1695905bdf",
+  "guidanceScale": 4.5,
+  "defaultComplexHumanInstruction": true,
+  "diffusersVersion": "0.40.0",
+  "browserWebGPU": false,
+  "paidJobs": false,
+  "qualityGatePassed": false,
+  "limitations": [
+    "Pretrained foundation-model baseline, not a campaign-trained student.",
+    "Prompt-conditioned example, not learned UPL conditioning.",
+    "Exact logo, product and typography fidelity not certified.",
+    "Native 1920×1088 cropped to 1920×1080; no enlargement."
+  ]
+}

@@ -20,6 +20,14 @@ class ModelSpec:
 
 
 MODELS = MappingProxyType({
+    "qwen3-0.6b": ModelSpec(
+        "qwen3-0.6b", "Qwen/Qwen3-0.6B", "c1899de289a04d12100db370d81485cdf75e47ca",
+        "AutoModelForCausalLM", "text", "apache-2.0",
+    ),
+    "qwen3-8b": ModelSpec(
+        "qwen3-8b", "Qwen/Qwen3-8B", "b968826d9c46dd6066d109eabc6255188de91218",
+        "AutoModelForCausalLM", "text", "apache-2.0",
+    ),
     "tiny-sd": ModelSpec(
         "tiny-sd", "segmind/tiny-sd", "cad0bd7495fa6c4bcca01b19a723dc91627fe84f",
         "StableDiffusionPipeline", "image", "creativeml-openrail-m", False,
@@ -55,7 +63,7 @@ def download_model(model, cache_dir=None):
     from huggingface_hub import snapshot_download
 
     patterns = ["*.json", "*.txt", "*.model", "*.tiktoken", "README.md", "LICENSE*", "*LICENSE*", "*license*"]
-    patterns.append("*/*.safetensors" if specification.safetensors else "*/*.bin")
+    patterns.extend(["*.safetensors", "*/*.safetensors"] if specification.safetensors else ["*.bin", "*/*.bin"])
     return snapshot_download(
         repo_id=specification.repo, revision=specification.revision,
         cache_dir=cache_dir or default_cache_dir(), allow_patterns=patterns, local_files_only=False,

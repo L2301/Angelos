@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Run the Angelos research laboratory locally. No profiles or inference APIs are exposed by this static showcase.">
+  <title>Run the lab — Angelos</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#171915;color:#f3f0e6;font:16px/1.7 system-ui,sans-serif}main{width:min(800px,100%);margin:auto;padding:70px 24px}a{color:#d8f56b;text-underline-offset:5px}h1{font-size:clamp(40px,8vw,76px);letter-spacing:-.055em;line-height:1.05;font-weight:500}h2{font-size:22px;font-weight:500;margin-top:44px}p{color:#c0c4b7}pre{padding:24px;border:1px solid #444b39;overflow:auto;background:#20251b;font:13px/1.9 monospace}small{color:#b8c49f;text-transform:uppercase;letter-spacing:.12em}aside{border-left:2px solid #d8f56b;padding-left:22px;margin:32px 0}a:focus-visible{outline:2px solid #d8f56b;outline-offset:6px}code{overflow-wrap:anywhere}footer{margin-top:60px;padding-top:24px;border-top:1px solid #444b39;font-size:13px}
+  </style>
+</head>
+<body><main>
+  <a href="/">← Back to the idea</a>
+  <p><small>Local research laboratory / not a hosted service</small></p>
+  <h1>Bring the experiment<br>to your machine.</h1>
+  <p>This is the static Angelos showcase. It includes the idea, research and recorded evidence. It deliberately does not expose a profile database, model runner or unauthenticated laboratory API.</p>
+  <p><strong>The idea in plain English:</strong> make an ad workflow in ComfyUI, generate examples and rate them, then train a smaller model to make similar ads faster. Use ratings and click feedback to train and compare new versions. These are separate steps, not one automatic process. A useful campaign-trained HD model and better click rates are still unproven.</p>
+  <aside><strong>Explore first. Download models only when you choose.</strong><p>The local interface and graph editor run without Python, model weights or WebGPU. Actual text generation needs a cached model; the learned image preview needs a trained artifact and hardware WebGPU.</p></aside>
+  <h2>01 / Explore locally</h2>
+  <p>With repository access and Node 24 or newer, run these commands from your checkout:</p>
+  <pre>npm ci
+npm start</pre>
+  <p>Then open <code>http://127.0.0.1:4310/lab</code>. A fresh checkout honestly shows that no trained student is loaded.</p>
+  <h2>02 / Make the ad in ComfyUI</h2>
+  <p>The local lab can turn a <a href="/docs/COMFYUI.md#workflow-to-program">supported API-format ComfyUI graph into a readable, type-checked program</a> and back into API JSON. Unsupported nodes fail explicitly. This runs locally without models; it does not generate an ad or train weights.</p>
+  <p>Use the canvas you already know. Keep your model and sampler nodes, finish the ad with its branding, then attach the Angelos export nodes. They save the creative and its workflow provenance for the next stages; exporting is not training.</p>
+  <p><a href="/docs/COMFYUI.md">Install the ComfyUI bridge and follow the workflow</a>. The built-in Angelos graph is a smaller inspectable alternative.</p>
+  <h2 id="text-laboratory">03 / Run a real text node</h2>
+  <p>Install Python 3.11 and the model dependencies, then explicitly cache the lightweight Qwen3 checkpoint. Review its model license first.</p>
+  <pre>python3.11 -m venv .venv
+.venv/bin/python -m pip install -r ml/requirements-generative.txt
+npm run models -- download qwen3-0.6b</pre>
+  <p>Use the lab’s text probe to generate actual model output. <code>prompt()</code> formats instructions; <code>generate_text()</code> runs the language model. Neither training nor model downloading happens just because you open the page.</p>
+  <h2>04 / Inspect UPL ingredients before encoding</h2>
+  <p>After building the ad in ComfyUI, use the local lab to declare fictional interests, goals, visual styles and language, and explicitly record synthetic intent events. Facts, events and permissions have separate revisions. Encode only when you choose, using a cached Qwen3-Embedding model at 128, 256, 512 (default) or 1024 dimensions. Missing weights fail without automatic downloads or fake vectors.</p>
+  <p>The first cold local encode may take about 20 seconds, including worker/model loading. Timing varies by machine; this is not a GPU latency claim.</p>
+  <p><a href="/docs/UPL-EXECUTION.md">Recorded real CPU embedding execution</a> verifies that the encoder ran, not that a campaign adapter was learned or click rates improved.</p>
+  <p>Copy v2 only after a successful current encode. The separate 4D WebGPU handoff is a legacy fixture. Trainable adapter infrastructure is not a trained conditioning model, and embeddings are not anonymous. No real browsing histories, paid jobs, automatic training or promotion are enabled.</p>
+  <h2>05 / Inspect the boundaries</h2>
+  <p>The browser student remains a 32×32 engineering experiment whose conditioning audit failed. A separate local foundation-model run produced genuine 1920×1080 imagery, not an enlarged student preview. The critic and click-driven candidate experiments do not establish measured click-rate lift or a finished campaign-trained HD model.</p>
+  <p><a href="/docs/HD-EXECUTION.md">Recorded HD evidence</a> · <a href="/docs/RL.md">Click + critic experiments</a>. No paid jobs or automatic training are enabled.</p>
+  <p><a href="/docs/TEXT.md">Text-node contract</a> · <a href="/docs/SHOWCASE-AUDIT.md">What still needs to be proved</a> · <a href="https://github.com/L2301/Angelos">Repository — access may be required</a></p>
+  <footer>GPU Accelerated Ads — a proof of concept by Louis Anderson · Angelos. Do not deploy the local lab API publicly.</footer>
+</main></body>
+</html>

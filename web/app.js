@@ -1,5 +1,7 @@
 import { parseSource, printSource, graphHash, validateGraph, OPERATIONS, createReference } from '/src/core/graph.js';
 import { createGpuRenderer, validateStudent } from '/src/browser/student.js';
+import { buildCommands } from '/web/build-plan.js';
+import { initializeUplLab } from '/web/upl-lab.js';
 
 const element = identifier => document.getElementById(identifier);
 let state;
@@ -17,7 +19,90 @@ let exposureTimer;
 let selectionRevision = 0;
 let creativeSeed = 2026;
 let graphUpdates = Promise.resolve();
+let previousSource;
+let buildRunId;
+let handoffSnapshot;
+let handoffJson;
+let uplCopyPending = false;
+let uplLab;
 const positions = new Map();
+
+function refreshGuide() {
+  if (!state) return;
+  updateGuide({ state, artifact, snapshot, profile: currentProfile(), vector: previewVector(), ready: canRenderStudent(), rendered: acceptedRevision === revision, revision });
+  refreshUplHandoff();
+  uplLab?.sync();
+}
+
+function comfyUplPayload() {
+  const profile = currentProfile();
+  if (!profile?.consent.personalization || !profile.consent.campaignIds.includes(state.graph.id) || !element('allow-personalization').checked) {
+    throw new Error('Personalization permission is required before copying a UPL.');
+  }
+  if (profile.synthetic !== true || !snapshot || snapshot.profileId !== profile.id || snapshot.campaignId !== state.graph.id
+    || snapshot.factRevision !== profile.factRevision || snapshot.consentVersion !== profile.consentVersion) {
+    throw new Error('Select a saved, consented fictional adult snapshot before copying.');
+  }
+  if (JSON.stringify(snapshot.vector) !== JSON.stringify(previewVector())) throw new Error('Save these preferences before copying. Unsaved changes cannot be exported.');
+  if (snapshot.factSchemaVersion !== 'angelos.facts.v1' || snapshot.encoder?.id !== 'structured-demo-v1' || snapshot.encoder.dimension !== 4 || !snapshot.facts) {
+    throw new Error('This saved snapshot does not use the supported ComfyUI UPL schema.');
+  }
+  const { ageBand, region, openness, energy } = snapshot.facts;
+  const facts = { ageBand, region, openness, energy };
+  const ageIndex = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'].indexOf(ageBand);
+  const regionIndex = ['NA', 'EU', 'APAC', 'OTHER'].indexOf(region);
+  const expected = [ageIndex / 5, regionIndex / 3, openness, energy];
+  if (ageIndex < 0 || regionIndex < 0 || !Array.isArray(snapshot.vector) || snapshot.vector.length !== 4
+    || expected.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)
+    || expected.some((value, index) => value !== snapshot.vector[index])
+    || Object.entries(facts).some(([field, value]) => value !== profile.facts[field])) {
+    throw new Error('The frozen facts and UPL do not match exactly. Select the saved person again.');
+  }
+  return { format: 'angelos.upl-input.v1', synthetic: true, adult: true, factsSchema: 'angelos.facts.v1', facts,
+    encoder: { id: 'structured-demo-v1', dimension: 4 }, upl: [...snapshot.vector] };
+}
+
+function refreshUplHandoff() {
+  let nextJson;
+  let message = 'Ready to copy this saved snapshot into Angelos Parse UPL.';
+  try { nextJson = JSON.stringify(comfyUplPayload(), null, 2); }
+  catch (error) { message = error.message; }
+  if (handoffJson !== nextJson || handoffSnapshot !== snapshot || !nextJson) {
+    element('upl-copy-json').value = '';
+    element('upl-copy-fallback').hidden = true;
+    element('upl-copy-status').textContent = message;
+  }
+  handoffJson = nextJson;
+  handoffSnapshot = snapshot;
+  element('copy-upl').disabled = !nextJson || uplCopyPending;
+}
+
+async function copyUpl() {
+  refreshUplHandoff();
+  if (!handoffJson || uplCopyPending) return;
+  const copiedJson = handoffJson;
+  const copiedSnapshot = snapshot;
+  uplCopyPending = true;
+  element('copy-upl').disabled = true;
+  element('upl-copy-status').textContent = 'Copying the saved snapshot…';
+  try {
+    await navigator.clipboard.writeText(copiedJson);
+    refreshUplHandoff();
+    if (handoffJson === copiedJson && snapshot === copiedSnapshot) element('upl-copy-status').textContent = 'Saved UPL copied. Paste it into Angelos Parse UPL in ComfyUI.';
+  } catch {
+    refreshUplHandoff();
+    if (handoffJson === copiedJson && snapshot === copiedSnapshot) {
+      element('upl-copy-json').value = copiedJson;
+      element('upl-copy-fallback').hidden = false;
+      element('upl-copy-status').textContent = 'Clipboard unavailable. Select the JSON below and copy it manually.';
+      element('upl-copy-json').focus();
+      element('upl-copy-json').select();
+    }
+  } finally {
+    uplCopyPending = false;
+    refreshUplHandoff();
+  }
+}
 
 function notice(message, error = false) {
   clearTimeout(noticeTimer);
@@ -68,6 +153,7 @@ function invalidateExposure() {
   element('click-ad').disabled = true;
   element('show-placement').disabled = true;
   element('exposure-status').textContent = 'No exposed impression for this creative.';
+  refreshGuide();
 }
 
 function refreshPreview() {
@@ -95,7 +181,7 @@ function refreshPreview() {
   const canvas = element('teacher');
   const generative = state.graph.nodes.some(node => node.op.startsWith('generate_'));
   element('teacher-backend').textContent = generative ? 'Offline open-weight teacher' : 'CPU diagnostic reference';
-  element('teacher-caption').textContent = generative ? 'Run the complete teacher offline with npm run dataset. Changing this UPL runs the distilled student, not FLUX or Tiny-SD in the browser.' : 'Deterministic graph reference. No pretrained model in this graph.';
+  element('teacher-caption').textContent = generative ? 'The full image teacher has not run in this browser. Run the saved recipe offline with the local build commands. Preference changes run only a compatible student, not the teacher.' : 'A deterministic drawing made from the saved recipe. No pretrained image model runs in this reference.';
   if (generative) {
     clearCanvas('teacher', 'Open-weight graph · offline teacher');
   } else {
@@ -110,6 +196,12 @@ function refreshPreview() {
     drawPixels(canvas, pixels);
   }
   element('creative-seed').textContent = String(creativeSeed);
+  if (!canRenderStudent()) {
+    clearCanvas('student', artifact ? 'Student unavailable for this recipe' : 'No trained model loaded');
+    clearCanvas('delivered', 'No current student result');
+    refreshGuide();
+    return;
+  }
   pendingRender = true;
   void renderLatest();
 }
@@ -153,6 +245,7 @@ async function renderLatest() {
     }
   } finally {
     rendering = false;
+    refreshGuide();
     if (pendingRender && canRenderStudent()) void renderLatest();
   }
 }
@@ -189,10 +282,10 @@ function renderGraph() {
   for (const node of ordered) {
     const position = positions.get(node.id);
     const group = svg('g', { class: `graph-node${selectedNode === node.id ? ' selected' : ''}`, transform: `translate(${position.x} ${position.y})`, tabindex: '0', role: 'button', 'aria-label': `Inspect ${node.id}: ${node.op}` });
-    group.append(svg('rect', { width: 135, height: 73, rx: 7 }), svg('text', { x: 12, y: 21, class: 'node-kind' }, OPERATIONS[node.op].output.toUpperCase()), svg('text', { x: 12, y: 42 }, node.id), svg('text', { x: 12, y: 59, class: 'node-op' }, `${node.op}()`), svg('circle', { cx: 135, cy: 36, r: 3 }));
+    group.append(svg('title', {}, `${node.id}: ${explainNode(node).description}`), svg('rect', { width: 135, height: 73, rx: 7 }), svg('text', { x: 12, y: 21, class: 'node-kind' }, OPERATIONS[node.op].output.toUpperCase()), svg('text', { x: 12, y: 42 }, explainNode(node).title), svg('text', { x: 12, y: 59, class: 'node-op' }, `${node.op}()`), svg('circle', { cx: 135, cy: 36, r: 3 }));
     if (Object.keys(node.inputs).length) group.append(svg('circle', { cx: 0, cy: 36, r: 3 }));
     group.addEventListener('click', () => inspectNode(node.id));
-    group.addEventListener('keydown', event => { if (event.key === 'Enter') inspectNode(node.id); });
+    group.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); inspectNode(node.id); } });
     group.addEventListener('pointerdown', event => {
       const initialX = event.clientX;
       const initialY = event.clientY;
@@ -210,6 +303,7 @@ function renderGraph() {
   element('graph-count').textContent = `${ordered.length} typed nodes · checked DAG`;
   element('operation-count').textContent = `${Object.keys(OPERATIONS).length} supported operations`;
   element('graph-hash').textContent = `SHA-256 ${state.graphHash.slice(0, 14)}…`;
+  describeRecipe(state.graph, ordered);
 }
 
 function inspectNode(nodeId) {
@@ -221,20 +315,28 @@ function inspectNode(nodeId) {
   title.className = 'eyebrow';
   title.textContent = `${node.id} / ${node.op} → ${OPERATIONS[node.op].output}`;
   inspector.append(title);
+  const explanation = document.createElement('p');
+  explanation.textContent = `${explainNode(node).title}. ${explainNode(node).description}`;
+  inspector.append(explanation);
   const description = document.createElement('p');
   description.textContent = Object.entries(node.inputs).map(([port, source]) => `${port} ← ${source}`).join('   ·   ') || 'Source node. No upstream inputs.';
   inspector.append(description);
+  if (node.op === 'prompt' || node.op === 'generate_text') {
+    const explanation = document.createElement('p');
+    explanation.textContent = node.op === 'prompt' ? 'Deterministic formatting: selects a template and substitutes the numeric condition. No language model runs here.' : 'Learned generation: a pinned local Qwen3 model produces text for downstream nodes. Separate from prompt formatting; executed by the offline teacher.';
+    inspector.append(explanation);
+  }
   const form = document.createElement('form');
   const fields = [];
   for (const [name, value] of Object.entries(node.params)) {
     const label = document.createElement('label');
     label.textContent = name;
     const input = document.createElement('input');
-    input.value = JSON.stringify(value);
+    input.value = typeof value === 'string' ? value : JSON.stringify(value);
     input.setAttribute('aria-label', `${node.id}.${name}`);
     label.append(input);
     form.append(label);
-    fields.push({ name, input });
+    fields.push({ name, input, text: typeof value === 'string' });
   }
   if (fields.length) {
     const button = document.createElement('button');
@@ -245,10 +347,14 @@ function inspectNode(nodeId) {
       event.preventDefault();
       const graph = structuredClone(state.graph);
       const changed = graph.nodes.find(candidate => candidate.id === nodeId);
-      for (const { name, input } of fields) changed.params[name] = JSON.parse(input.value);
+      for (const { name, input, text } of fields) changed.params[name] = text ? input.value : JSON.parse(input.value);
       await applySource(printSource(graph));
     }));
-    inspector.append(form);
+    const parameters = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = 'Edit step parameters · text values need no quotes';
+    parameters.append(summary, form);
+    inspector.append(parameters);
   }
   renderGraph();
 }
@@ -265,7 +371,9 @@ async function performApplySource(source) {
   revision += 1;
   invalidateExposure();
   const result = await request('/api/graph', { source });
+  if (result.source !== state.source) previousSource = state.source;
   state = { ...state, ...result, artifactCompatible: false };
+  element('restore-source').disabled = !previousSource;
   element('source').value = state.source;
   revision += 1;
   invalidateExposure();
@@ -309,6 +417,7 @@ async function selectProfile() {
     } catch (error) {
       if (selection !== selectionRevision) return;
       for (const identifier of ['teacher', 'student', 'delivered']) clearCanvas(identifier, 'Could not encode profile');
+      refreshGuide();
       notice(error.message, true);
       return;
     }
@@ -319,7 +428,7 @@ async function selectProfile() {
 async function refreshLedger() {
   const metrics = await request('/api/metrics');
   element('ledger-json').textContent = JSON.stringify(metrics, null, 2);
-  const entries = [['Exposed impressions', metrics.impressions ?? 0], ['Attributed clicks', metrics.clicks ?? 0], ['Observed CTR', `${((metrics.ctr ?? 0) * 100).toFixed(1)}%`], ['Human reviews', metrics.reviews ?? 0]];
+  const entries = [['Local exposures', metrics.impressions ?? 0], ['Recorded test clicks', metrics.clicks ?? 0], ['Local test click rate', `${((metrics.ctr ?? 0) * 100).toFixed(1)}%`], ['Human reviews', metrics.reviews ?? 0]];
   element('ledger-metrics').replaceChildren(...entries.map(([label, value]) => {
     const card = document.createElement('div');
     card.textContent = label;
@@ -333,14 +442,31 @@ async function refreshLedger() {
 function installHandlers() {
   for (const button of document.querySelectorAll('[data-section]')) button.addEventListener('click', task(async () => {
     for (const section of document.querySelectorAll('.section')) section.hidden = section.id !== button.dataset.section;
-    for (const navigation of document.querySelectorAll('.nav')) navigation.classList.toggle('active', navigation === button);
+    for (const navigation of document.querySelectorAll('.nav')) {
+      navigation.classList.toggle('active', navigation === button);
+      if (navigation === button) navigation.setAttribute('aria-current', 'page');
+      else navigation.removeAttribute('aria-current');
+    }
     invalidateExposure();
     if (button.dataset.section === 'studio') refreshPreview();
     if (button.dataset.section === 'learning') await refreshLedger();
   }));
-  element('show-canvas').onclick = () => { element('canvas-area').hidden = false; element('source-area').hidden = true; element('show-canvas').classList.add('selected'); element('show-source').classList.remove('selected'); };
-  element('show-source').onclick = () => { element('canvas-area').hidden = true; element('source-area').hidden = false; element('show-source').classList.add('selected'); element('show-canvas').classList.remove('selected'); };
+  element('show-canvas').onclick = () => { element('canvas-area').hidden = false; element('source-area').hidden = true; element('show-canvas').classList.add('selected'); element('show-source').classList.remove('selected'); element('show-canvas').setAttribute('aria-pressed', 'true'); element('show-source').setAttribute('aria-pressed', 'false'); };
+  element('show-source').onclick = () => { element('canvas-area').hidden = true; element('source-area').hidden = false; element('show-source').classList.add('selected'); element('show-canvas').classList.remove('selected'); element('show-source').setAttribute('aria-pressed', 'true'); element('show-canvas').setAttribute('aria-pressed', 'false'); };
   element('apply-source').onclick = task(() => applySource(element('source').value));
+  element('restore-source').onclick = task(async () => {
+    if (!previousSource) return;
+    await applySource(previousSource);
+    notice('Previous saved source restored. Matching artifacts can be used again.');
+  });
+  element('download-source').onclick = () => {
+    const url = URL.createObjectURL(new Blob([state.source], { type: 'text/plain' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${state.graph.id}.${state.graphHash.slice(0, 12)}.ang`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   element('load-example').onclick = task(async () => {
     const examples = await request('/api/examples');
     const example = examples.find(candidate => candidate.id === element('teacher-example').value);
@@ -366,7 +492,7 @@ function installHandlers() {
     }
     state.profiles = await request('/api/profiles');
     await selectProfile();
-    notice('Ingredient facts saved. A new UPL snapshot is independent of the old one.');
+    notice('Preferences saved. This version has its own preference snapshot.');
   });
   element('save-consent').onclick = task(async () => {
     const profile = currentProfile();
@@ -392,6 +518,7 @@ function installHandlers() {
     const capturedSnapshot = snapshot;
     element('show-placement').disabled = true;
     element('exposure-status').textContent = 'Waiting for one continuous second of ≥50% visible creative…';
+    element('delivered').scrollIntoView({ block: 'center' });
     let visibleSince;
     const qualify = async () => {
       if (capturedRevision !== revision) return;
@@ -423,13 +550,27 @@ function installHandlers() {
   element('save-review').onclick = task(async () => {
     if (!artifact || !state.artifactCompatible || acceptedRevision !== revision || !snapshot || JSON.stringify(snapshot.vector) !== JSON.stringify(previewVector())) throw new Error('Build and render a compatible student using a saved profile first');
     await request('/api/reviews', { profileId: currentProfile().id, campaignId: state.graph.id, snapshotId: snapshot.id, artifactId: artifact.id, seed: creativeSeed, quality: Number(element('quality-score').value), brand: Number(element('brand-score').value), eventId: crypto.randomUUID() });
-    notice('Review saved with model identity. Critic training is a separate future stage.');
+    markReviewSaved(revision);
+    refreshGuide();
+    notice('Review saved with model identity. Candidate training is separate; no model update was triggered.');
   });
-  element('training-help').onclick = () => element('training-dialog').showModal();
+  element('training-help').onclick = () => {
+    buildRunId = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    updateBuildCommands();
+    element('training-dialog').showModal();
+  };
+  element('build-device').onchange = updateBuildCommands;
   element('close-training').onclick = () => element('training-dialog').close();
   element('refresh-ledger').onclick = task(refreshLedger);
+  installGuide();
   document.addEventListener('visibilitychange', () => { if (document.hidden) invalidateExposure(); });
   window.addEventListener('beforeunload', () => { renderer?.dispose(); clearTimeout(exposureTimer); });
+}
+
+function updateBuildCommands() {
+  const plan = buildCommands(state.graph, state.graphHash, buildRunId, element('build-device').value);
+  element('training-command').textContent = plan.commands;
+  element('build-identity').textContent = `Saved graph ${state.graphHash.slice(0, 12)} · fresh dataset ${plan.dataset}`;
 }
 
 function populateProfiles() {
@@ -451,12 +592,17 @@ async function synchronizeArtifact() {
   renderer = undefined;
   artifact = undefined;
   state.artifactCompatible = false;
+  element('mse').textContent = '—';
+  element('brand-error').textContent = '—';
+  element('render-time').textContent = '—';
+  element('student-size').textContent = 'Unbuilt';
+  element('brand-mode').textContent = 'Awaiting validation';
   try {
     artifact = validateStudent(await request('/api/artifact'));
   } catch (error) {
-    if (error.status !== 404) throw error;
     state.artifactAvailable = false;
-    element('gpu-status').textContent = 'No trained artifact · build a student';
+    element('gpu-status').textContent = error.status === 404 ? 'No trained artifact · build a student' : 'Artifact invalid · graph tools remain usable';
+    if (error.status !== 404) notice(`Could not load the preview artifact: ${error.message}`, true);
     return;
   }
   state.artifactAvailable = true;
@@ -489,9 +635,178 @@ async function initialize() {
   renderGraph();
   clearCanvas('student', 'Train a student to see learned pixels');
   clearCanvas('delivered', 'No model loaded');
-  await synchronizeArtifact();
   installHandlers();
+  uplLab = initializeUplLab({
+    getContext: () => ({ profile: currentProfile(), campaignId: state.graph.id,
+      legacyDirty: Boolean(currentProfile() && JSON.stringify(previewVector()) !== JSON.stringify([
+        ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'].indexOf(currentProfile().facts.ageBand) / 5,
+        ['NA', 'EU', 'APAC', 'OTHER'].indexOf(currentProfile().facts.region) / 3,
+        currentProfile().facts.openness, currentProfile().facts.energy])) }),
+    onFactsSaved: async () => { state.profiles = await request('/api/profiles'); await selectProfile(); },
+  });
+  try {
+    await synchronizeArtifact();
+  } catch (error) {
+    renderer?.dispose();
+    renderer = undefined;
+    artifact = undefined;
+    state.artifactCompatible = false;
+    element('gpu-status').textContent = 'Artifact unavailable · graph tools remain usable';
+    notice(`Could not load the preview artifact: ${error.message}`, true);
+  }
   await selectProfile();
 }
 
-initialize().catch(error => notice(`Initialization failed: ${error.message}`, true));
+let reviewedRevision;
+
+const operations = {
+  upl: ['Preferences (UPL)', 'Pass four declared preference numbers into the recipe. No personality is inferred.'],
+  feature: ['Read a preference', 'Select one preference number to control a later step.'],
+  constant: ['Fixed value', 'Supply a fixed number to the next step.'],
+  prompt: ['Format the brief', 'Choose and format instructions using a preference. This is a template, not a language model.'],
+  generate_text: ['Write with a model', 'A local pretrained text model writes new words for the next step. It runs in the offline teacher.'],
+  generate_image: ['Generate an image', 'A pretrained image model follows the brief. This teacher step runs offline, not when you move a slider.'],
+  generate_video: ['Generate a video', 'A pretrained video model follows the brief offline. This is not live browser video generation.'],
+  frame: ['Choose a frame', 'Take one image from the generated video.'],
+  gradient: ['Paint a background', 'Make a deterministic color gradient. No pretrained image model runs in this step.'],
+  disk: ['Add a light shape', 'Draw a soft circular shape, adjusted by a preference. This is a procedural operation.'],
+  exposure: ['Adjust brightness', 'Change image brightness using the energy preference.'],
+  vignette: ['Shade the edges', 'Darken the edges to focus attention toward the center.'],
+  brand: ['Add the brand mark', 'Compose an exact brand mark onto the image. This is separate from what a student learns.'],
+};
+
+function explainNode(node) {
+  if (node.op === 'feature') {
+    const field = ['age range', 'broad region', 'openness', 'energy'][node.params.index];
+    return { title: `Read ${field}`, description: `Select the ${field} number from the fictional person's preferences.` };
+  }
+  const [title, description] = operations[node.op] ?? [node.op, 'Inspect this saved operation and its parameters.'];
+  return { title, description };
+}
+
+function describeRecipe(graph, ordered) {
+  const generative = graph.nodes.some(node => node.op.startsWith('generate_'));
+  element('recipe-name').textContent = `${graph.id} / ${generative ? 'offline generative teacher' : 'procedural reference · no pretrained model'}`;
+  element('recipe-summary').textContent = generative
+    ? 'This recipe includes offline model generation. Loading it does not execute it.'
+    : 'This saved recipe draws colors and shapes. It is a procedural test, not a pretrained image generator.';
+  element('recipe-steps').replaceChildren(...ordered.map(node => {
+    const item = document.createElement('li');
+    const explanation = explainNode(node);
+    item.textContent = `${explanation.title}: ${explanation.description} (${node.id})`;
+    return item;
+  }));
+}
+
+function markReviewSaved(revision) {
+  reviewedRevision = revision;
+}
+
+function updateGuide({ state, artifact, snapshot, profile, vector, ready, rendered, revision }) {
+  const saved = Boolean(snapshot && JSON.stringify(snapshot.vector) === JSON.stringify(vector));
+  const permitted = Boolean(profile?.consent.personalization && profile.consent.campaignIds.includes(state.graph.id));
+  element('profile-save-status').textContent = !profile ? 'No fictional people remain. Nothing is selected.'
+    : !permitted ? 'Personalization is not permitted for this recipe. Check People & permissions.'
+      : !snapshot ? 'No usable saved preferences. Select a person again or check their permissions.'
+        : saved ? 'Using saved preferences. You can change them to explore another version.'
+          : 'Unsaved preferences: preview only. Save these preferences before grading or recording events.';
+  let title;
+  let detail;
+  if (!profile) {
+    title = 'No person selected';
+    detail = 'A preview needs a fictional person and permitted preferences. No previous person’s result is being shown.';
+  } else if (!permitted) {
+    title = 'Personalization is not permitted';
+    detail = 'Open People & permissions to review this person’s settings. Rendering and event recording are unavailable.';
+  } else if (!snapshot) {
+    title = 'Preferences are unavailable';
+    detail = 'The selected person could not be prepared. Select them again or check permissions; no output is ready to review.';
+  } else if (!artifact) {
+    title = 'No usable trained model is loaded';
+    detail = 'You can still explore and edit the recipe. Previewing the student needs a compatible artifact (saved trained weights). See local build instructions below; nothing trains automatically.';
+  } else if (!state.artifactCompatible) {
+    title = 'The saved model does not match this recipe';
+    detail = 'Changing a recipe does not retrain the student. Restore the matching recipe or explicitly build matching weights. Previous output is not a result for this recipe.';
+  } else if (!ready || element('gpu-status').textContent.includes('unavailable')) {
+    title = 'The browser GPU is unavailable';
+    detail = 'No student image is being served. Use a browser with a working WebGPU adapter. The recipe reference may still work, but it is not a CPU substitute for the trained student.';
+  } else if (!rendered) {
+    title = 'Preparing the current preview';
+    detail = 'Wait for the matching student to finish rendering. Earlier pixels, if visible, are not yet the current result and cannot be graded or exposed.';
+  } else {
+    title = saved ? 'Research preview ready' : 'Preview ready · preferences not saved';
+    detail = artifact.format === 'angelos.diffusion.v1'
+      ? `The student rendered at native ${artifact.architecture.resolution} × ${artifact.architecture.resolution}, enlarged for display. Compare its raw pixels with the separate brand treatment. This is not the HD foundation example.`
+      : 'This is the legacy coordinate-model fixture, not a pretrained image generator or a diffusion model. Numerical rendering is not evidence of ad quality.';
+  }
+  element('result-state-title').textContent = title;
+  element('result-state-detail').textContent = detail;
+  element('result-state-title').closest('.result-state').dataset.ready = String(Boolean(rendered && ready));
+  element('new-seed').disabled = !(rendered && ready);
+  element('review-status').textContent = reviewedRevision === revision ? 'Review saved for this model and preference snapshot. No model update was triggered.'
+    : !saved ? 'Save usable preferences before grading this version.'
+      : !rendered || !ready ? 'Wait for a compatible rendered result before grading. A reference or HD example alone is not reviewable here.'
+        : 'Ready to grade this student result. Your scores will be saved with its model and preference snapshot.';
+}
+
+function installGuide() {
+  element('copy-upl').addEventListener('click', copyUpl);
+  element('select-upl-json').addEventListener('click', () => {
+    refreshUplHandoff();
+    if (!handoffJson || element('upl-copy-fallback').hidden) return;
+    element('upl-copy-json').focus();
+    element('upl-copy-json').select();
+  });
+  element('allow-personalization').addEventListener('change', refreshUplHandoff);
+  for (const button of document.querySelectorAll('[data-open-section]')) button.addEventListener('click', () => {
+    document.querySelector(`.nav[data-section="${button.dataset.openSection}"]`).click();
+    element(button.dataset.openSection).scrollIntoView({ block: 'start' });
+  });
+  for (const link of document.querySelectorAll('a[href="#build-tools"]')) link.addEventListener('click', () => {
+    element('build-tools').open = true;
+  });
+  element('text-graph-preset').addEventListener('click', () => {
+    element('show-canvas').click();
+  }, { capture: true });
+  element('load-hd-preview').addEventListener('click', loadHdPreview);
+}
+
+async function loadHdPreview() {
+  const button = element('load-hd-preview');
+  const status = element('hd-preview-status');
+  const picture = element('hd-preview-image');
+  button.disabled = true;
+  picture.hidden = true;
+  status.textContent = 'Checking for a verified, previously generated local image. No generation is being started.';
+  try {
+    const response = await fetch('/api/hd-preview');
+    if (!response.ok) throw new Error('The read-only HD preview is not available on this server. The student workflow is unaffected.');
+    const preview = await response.json();
+    if (!preview.available) throw new Error('No verified HD example is installed. Nothing has been downloaded or generated.');
+    if (preview.mode !== 'pretrained-baseline-not-campaign-trained' || preview.image !== '/api/hd-image'
+      || ![preview.width, preview.height, preview.nativeWidth, preview.nativeHeight].every(value => Number.isInteger(value) && value > 0)) {
+      throw new Error('The HD example has an unrecognized provenance contract. No image is displayed.');
+    }
+    picture.src = preview.image;
+    await picture.decode();
+    picture.width = preview.width;
+    picture.height = preview.height;
+    picture.hidden = false;
+    status.textContent = `Saved pretrained baseline · ${preview.nativeWidth} × ${preview.nativeHeight} native, cropped to ${preview.width} × ${preview.height}. Not campaign-trained, not the current graph’s output, and not learned from your grades.`;
+    button.textContent = 'Refresh saved example';
+  } catch (error) {
+    status.textContent = error.message;
+    picture.removeAttribute('src');
+    button.textContent = 'Check for saved HD example';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+initialize().then(refreshGuide).catch(error => {
+  element('guide-error').hidden = false;
+  element('guide-error').textContent = `The local lab could not load: ${error.message}. Reload after checking the local server. No model result is available.`;
+  element('result-state-title').textContent = 'The local lab is unavailable';
+  element('result-state-detail').textContent = 'The saved recipe and model could not be checked. No successful generation is assumed.';
+  notice(`Initialization failed: ${error.message}`, true);
+});

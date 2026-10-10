@@ -82,7 +82,9 @@ def brand_probe_coordinates(parameters, device="cpu"):
 class TensorTeacher:
     def __init__(self, graph):
         self.nodes = validate_graph(graph)
-        if any(node["op"] in {"prompt", "generate_image", "generate_video", "frame"} for node in self.nodes):
+        if graph["version"] != "angelos.graph.v1":
+            raise ValueError("TensorTeacher/compile_teacher cannot execute graph.v2 semantic UPLs; legacy operators are not migrated")
+        if any(node["op"] in {"prompt", "generate_text", "generate_image", "generate_video", "frame"} for node in self.nodes):
             raise ValueError("Coordinate teacher / strict ATen compiler cannot execute generative nodes. Use RasterTeacher or python -m angelos_ml.dataset with pinned local models; no procedural fallback or compiled-generator claim is supported.")
         self.graph = copy.deepcopy(graph)
         brands = [node["params"] for node in self.nodes if node["op"] == "brand"]
@@ -138,6 +140,8 @@ class RasterTeacher:
 
     def __init__(self, graph, registry=None):
         self.nodes = validate_graph(graph)
+        if graph["version"] != "angelos.graph.v1":
+            raise ValueError("RasterTeacher cannot execute graph.v2 semantic UPLs; supply a frozen dataset, not fabricated teacher execution")
         self.graph = copy.deepcopy(graph)
         self.registry = registry if registry is not None else PipelineRegistry()
         self.last_provenance = []
@@ -181,9 +185,18 @@ class RasterTeacher:
                 condition = inputs["condition"]
                 text = parameters["low"] if condition < parameters["threshold"] else parameters["high"]
                 result = text.replace("{condition}", f"{condition:.6f}")
+            elif operation == "generate_text":
+                derived_seed = node_seed(seed, node["id"])
+                generated = self.registry.generate_text(parameters["model"], inputs["prompt"], parameters, derived_seed)
+                result = generated["text"]
+                provenance["generations"].append({
+                    "node": node["id"], "seed": derived_seed, "prompt": inputs["prompt"],
+                    "model": self.registry.metadata(parameters["model"]), "params": copy.deepcopy(parameters), **generated,
+                })
             elif operation in {"generate_image", "generate_video"}:
                 derived_seed = node_seed(seed, node["id"])
-                result = self.registry.generate(parameters["model"], inputs["prompt"], parameters, derived_seed)
+                text_source = any(source["id"] == node["inputs"]["prompt"] and source["op"] == "generate_text" for source in self.nodes)
+                result = self.registry.generate(parameters["model"], inputs["prompt"], parameters, derived_seed, strict_prompt=text_source)
                 provenance["generations"].append({
                     "node": node["id"], "seed": derived_seed, "prompt": inputs["prompt"],
                     "model": self.registry.metadata(parameters["model"]), "params": copy.deepcopy(parameters),
