@@ -2,6 +2,8 @@
 
 **GPU Accelerated Ads — a proof of concept by Louis Anderson.**
 
+[Visit the public showcase](https://l2301.github.io/Angelos/) · [Run the lab locally](https://l2301.github.io/Angelos/lab/)
+
 **Author a creative graph. Execute a teacher. Distill one diffusion model per campaign.**
 
 Angelos is a local research laboratory for UPL-conditioned creative generation.
